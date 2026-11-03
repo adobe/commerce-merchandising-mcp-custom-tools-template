@@ -1,6 +1,6 @@
 {
   "name": "@adobe/generator-app-commerce-merchandising-mcp-custom-tools",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Adobe App Builder template for an IMS-authenticated commerce merchandising MCP server with custom tools.",
   "main": "src/index.js",
   "license": "Apache-2.0",

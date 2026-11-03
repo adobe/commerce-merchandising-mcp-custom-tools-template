@@ -1,0 +1,47 @@
+{
+  "$comment": "Accepted production audit advisories, enforced by scripts/audit-gate.js (npm run audit). An advisory is accepted only if every production path to the vulnerable package goes through one of the listed `via` dependency chains. Keep in sync with SECURITY.md.",
+  "allowlist": [
+    {
+      "via": [
+        "yeoman-generator>pacote",
+        "yeoman-generator>yeoman-environment",
+        "yeoman-generator>github-username",
+        "yeoman-generator>shelljs",
+        "yeoman-generator>mem-fs-editor"
+      ],
+      "advisories": [
+        "GHSA-34x7-hfp2-rc4v",
+        "GHSA-8qq5-rm4j-mr97",
+        "GHSA-83g3-92jg-28cx",
+        "GHSA-qffp-2rhf-9h96",
+        "GHSA-9ppj-qmqm-q256",
+        "GHSA-r6q2-hw4h-h46w",
+        "GHSA-vmf3-w455-68vh",
+        "GHSA-w8wr-v893-vjvp",
+        "GHSA-23hp-3jrh-7fpw",
+        "GHSA-8x88-c5mf-7j5w",
+        "GHSA-gvwx-54wh-qm9j",
+        "GHSA-r292-9mhp-454m",
+        "GHSA-w4pp-8pjf-rmxw",
+        "GHSA-52v5-jr5w-gjxr",
+        "GHSA-vv9j-gjw2-j8wp",
+        "GHSA-h5c3-5r3r-rr8q",
+        "GHSA-rmvr-2pp2-xj38",
+        "GHSA-xx4v-prfh-6cgc",
+        "GHSA-vpq2-c234-7xj6",
+        "GHSA-3g3m-2fjr-6pw4",
+        "GHSA-g3hv-75wg-m249"
+      ],
+      "reason": "Transitive dependencies of yeoman-generator@5 (latest 5.x, required by @adobe/generator-app-common-lib@3): tar, pacote, sigstore, yeoman-environment, @octokit/*, @tootallnate/once, glob, minimatch. Fixes require the yeoman-generator@7 / ESM migration. This code runs only on the developer machine while `aio app init` generates the project; the generator never installs or extracts packages through pacote/yeoman-environment and nothing from it is deployed to Adobe I/O Runtime."
+    },
+    {
+      "via": [
+        "@adobe/aio-lib-core-config>deepmerge"
+      ],
+      "advisories": [
+        "GHSA-gcqx-w48m-w2h4"
+      ],
+      "reason": "Low severity prototype poisoning of merge results in deepmerge, used by @adobe/aio-lib-core-config to merge local aio config files. No fixed deepmerge version is available; inputs are trusted local configuration."
+    }
+  ]
+}

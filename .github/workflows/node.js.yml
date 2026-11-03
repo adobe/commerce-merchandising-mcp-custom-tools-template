@@ -1,0 +1,19 @@
+name: Node.js CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    # lint, unit tests with coverage thresholds and template validation on Node 20/22/24, Linux and Windows
+    uses: adobe/aio-reusable-workflows/.github/workflows/node.js.yml@f4b6073888fffa6dec92670520f39ae7e9572e5b # main
+    secrets:
+      CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}

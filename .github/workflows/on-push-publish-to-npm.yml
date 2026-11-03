@@ -1,0 +1,18 @@
+name: Publish to NPM on Release Commit
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'package.json'
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    # publishes only from the adobe org, using the ADOBE_BOT_NPM_TOKEN secret
+    if: startsWith(github.event.head_commit.message, 'Release ')
+    uses: adobe/aio-reusable-workflows/.github/workflows/on-push-publish-to-npm.yml@f4b6073888fffa6dec92670520f39ae7e9572e5b # main
+    secrets: inherit

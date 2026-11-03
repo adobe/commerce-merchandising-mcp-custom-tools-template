@@ -1,0 +1,9 @@
+node_modules/
+coverage/
+dist/
+build/
+# EJS templates are not valid JavaScript until rendered; test/index.test.js lints the generated output
+src/templates/test/
+src/templates/actions/mcp-tool/index.js
+src/templates/actions/mcp-tool/server.js
+src/templates/actions/mcp-tool/tools.js

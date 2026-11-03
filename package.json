@@ -1,0 +1,61 @@
+{
+  "name": "@adobe/generator-app-commerce-merchandising-mcp-custom-tools",
+  "version": "1.0.0",
+  "description": "Adobe App Builder template for an IMS-authenticated commerce merchandising MCP server with custom tools.",
+  "main": "src/index.js",
+  "license": "Apache-2.0",
+  "author": "Adobe Inc.",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/adobe/commerce-merchandising-mcp-custom-tools-template.git"
+  },
+  "bugs": {
+    "url": "https://github.com/adobe/commerce-merchandising-mcp-custom-tools-template/issues"
+  },
+  "homepage": "https://github.com/adobe/commerce-merchandising-mcp-custom-tools-template#readme",
+  "files": [
+    "src/",
+    "install.yml"
+  ],
+  "keywords": [
+    "ecosystem:aio-app-builder-templates",
+    "aio-app-builder-template",
+    "yeoman-generator",
+    "adobe",
+    "commerce",
+    "mcp",
+    "model-context-protocol"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@adobe/generator-app-common-lib": "^3.0.2",
+    "yeoman-generator": "^5.10.0"
+  },
+  "devDependencies": {
+    "@adobe/aio-lib-core-logging": "^3.0.2",
+    "@adobe/aio-lib-ims": "^8.1.2",
+    "@adobe/aio-lib-template-validation": "^5.0.2",
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "eslint": "^8",
+    "eslint-plugin-jest": "^27.2.3",
+    "jest": "^29",
+    "js-yaml": "^4.1.0",
+    "yeoman-environment": "^3.19.3",
+    "yeoman-test": "^6.3.0",
+    "zod": "^4.6.7"
+  },
+  "scripts": {
+    "test": "npm run lint && npm run unit-tests && npm run validate",
+    "unit-tests": "jest --runInBand",
+    "validate": "tv run-checks .",
+    "lint": "eslint .",
+    "lint:fix": "npm run lint -- --fix",
+    "audit": "node scripts/audit-gate.js",
+    "prepublishOnly": "npm test"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

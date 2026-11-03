@@ -31,7 +31,7 @@
   },
   "dependencies": {
     "@adobe/generator-app-common-lib": "^3.0.2",
-    "yeoman-generator": "^5.10.0"
+    "yeoman-generator": "^10.3.0"
   },
   "devDependencies": {
     "@adobe/aio-lib-core-logging": "^3.0.2",

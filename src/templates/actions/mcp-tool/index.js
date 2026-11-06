@@ -19,7 +19,7 @@ See the License for the specific language governing permissions and limitations.
  *   POST    -> MCP JSON-RPC message(s), handled by the SDK (IMS auth required)
  *   DELETE  -> 200 (no session to terminate)
  *
- * Tools, resources and prompts live in ./tools.js, ./resources.js and ./prompts.js.
+ * Tools live in ./tools.js.
  * Tools may set `authenticated: true|false` (default `false`); the flag is published by
  * `tools/list` as `_meta.authenticated` and only authenticated tools receive the caller's auth
  * context. Examples: `currentDate` (unauthenticated) and `whoAmI` (authenticated).

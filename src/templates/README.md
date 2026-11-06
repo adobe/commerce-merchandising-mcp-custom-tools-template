@@ -44,12 +44,8 @@ transport are created for each request, and responses are always JSON (no SSE st
 | File | Responsibility |
 | --- | --- |
 | `index.js` | HTTP routing, I/O Runtime ⇄ Web `Request`/`Response` conversion, middleware chain |
-| `server.js` | `createMcpServer()`, which registers tools, resources and prompts |
+| `server.js` | `createMcpServer()`, which registers the tools |
 | `tools.js` | Tool definitions (`defineTool()`) and `registerTools()` |
-<% if (examples) { -%>
-| `resources.js` | Example resource `docs://custom-tools` |
-| `prompts.js` | Example prompt `time-in` |
-<% } -%>
 
 | HTTP method | Behaviour | Auth |
 | --- | --- | --- |
@@ -235,18 +231,6 @@ Then add it to the `TOOLS` array. `tools/list` returns:
   "_meta": { "authenticated": true }
 }
 ```
-
-## Resources and prompts
-
-<% if (examples) { -%>
-- `actions/mcp-tool/resources.js`: register resources with `server.registerResource()` (example:
-  `docs://custom-tools`, a markdown guide to custom tools).
-- `actions/mcp-tool/prompts.js`: register prompts with `server.registerPrompt()` and a zod `argsSchema`
-  (example: `time-in`, which asks for the time in a city using `currentDate`).
-<% } else { -%>
-Examples were disabled. To add resources or prompts, create a module and register it in `server.js`
-with `server.registerResource()` or `server.registerPrompt()`.
-<% } -%>
 
 ## Config
 

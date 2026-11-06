@@ -207,7 +207,7 @@ describe('mcp-tool protocol (MCP SDK)', () => {
     const { result } = bodyOf(response)
     expect(result.serverInfo).toEqual({ name: '<%= projectName %>', version: '0.1.0' })
     expect(result.protocolVersion).toEqual('2025-06-18')
-    expect(Object.keys(result.capabilities)).toEqual(expect.arrayContaining(['tools'<% if (examples) { %>, 'resources', 'prompts'<% } %>]))
+    expect(Object.keys(result.capabilities)).toEqual(expect.arrayContaining(['tools']))
   })
 
   test('ping returns an empty result', async () => {
@@ -273,22 +273,6 @@ describe('mcp-tool protocol (MCP SDK)', () => {
     const response = await action.main(rpc({ jsonrpc: '2.0', id: 7, method: 'unknown/method' }))
     expect(bodyOf(response).error.code).toEqual(-32601)
   })
-
-<% if (examples) { -%>
-  test('resources/list and resources/read expose the custom tools guide', async () => {
-    const list = bodyOf(await action.main(rpc({ jsonrpc: '2.0', id: 1, method: 'resources/list' })))
-    expect(list.result.resources.map(r => r.uri)).toContain('docs://custom-tools')
-    const read = bodyOf(await action.main(rpc({ jsonrpc: '2.0', id: 2, method: 'resources/read', params: { uri: 'docs://custom-tools' } })))
-    expect(read.result.contents[0].text).toContain('_meta.authenticated')
-  })
-
-  test('prompts/list and prompts/get expose the time-in prompt', async () => {
-    const list = bodyOf(await action.main(rpc({ jsonrpc: '2.0', id: 1, method: 'prompts/list' })))
-    expect(list.result.prompts.map(p => p.name)).toContain('time-in')
-    const get = bodyOf(await action.main(rpc({ jsonrpc: '2.0', id: 2, method: 'prompts/get', params: { name: 'time-in', arguments: { city: 'Bucharest' } } })))
-    expect(get.result.messages[0].content.text).toContain('Bucharest')
-  })
-<% } -%>
 })
 
 <% if (examples) { -%>

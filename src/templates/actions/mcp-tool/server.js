@@ -9,15 +9,11 @@ See the License for the specific language governing permissions and limitations.
 
 const { McpServer } = require('@modelcontextprotocol/sdk/server/mcp.js')
 const { registerTools } = require('./tools')
-<% if (examples) { -%>
-const { registerResources } = require('./resources')
-const { registerPrompts } = require('./prompts')
-<% } -%>
 
 const SERVER_INFO = { name: '<%= projectName %>', version: '0.1.0' }
 
 /**
- * Creates an MCP server with all tools, resources and prompts registered.
+ * Creates an MCP server with all tools registered.
  * A fresh instance is created per request (stateless serverless pattern).
  *
  * @param {object} [options] options.
@@ -27,13 +23,9 @@ const SERVER_INFO = { name: '<%= projectName %>', version: '0.1.0' }
  */
 function createMcpServer ({ logger } = {}) {
   const server = new McpServer(SERVER_INFO, {
-    capabilities: { tools: {}<% if (examples) { %>, resources: {}, prompts: {}<% } %> }
+    capabilities: { tools: {} }
   })
   registerTools(server, { logger })
-<% if (examples) { -%>
-  registerResources(server)
-  registerPrompts(server)
-<% } -%>
   return server
 }
 

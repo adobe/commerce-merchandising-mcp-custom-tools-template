@@ -46,7 +46,7 @@ Interactive prompts use these same defaults. `--skip-prompt` uses supplied CLI o
 | Project / MCP server name | `--project-name` | `commerce-merchandising-mcp` |
 | IMS environment | `--ims-env` | `prod` (`prod` or `stage`) |
 | Comma-separated IMS client IDs | `--allowlist` | Empty: any valid IMS token |
-| Include `whoAmI`, a resource and a prompt | `--examples` / `--no-examples` | `true` |
+| Include the `whoAmI` example tool | `--examples` / `--no-examples` | `true` |
 
 Project names must be 1-64 lowercase letters, digits or hyphens, starting with a letter or digit.
 `currentDate` is always included. The selected IMS environment and allowlist are both written to
@@ -61,7 +61,7 @@ and `full-key-to-manifest` options are supported.
 ## Generated application
 
 ```text
-actions/mcp-tool/       MCP HTTP action, tool definitions, server, optional resources/prompts
+actions/mcp-tool/       MCP HTTP action, tool definitions, server
 actions/middleware/     CORS, IMS authentication, middleware chain
 actions/utils.js       Shared action utilities
 test/                  Action and middleware unit tests

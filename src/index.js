@@ -63,7 +63,7 @@ class CommerceMcpGenerator extends ActionGenerator {
         {
           type: 'confirm',
           name: 'examples',
-          message: 'Include whoAmI, the example resource and the example prompt?',
+          message: 'Include the whoAmI example tool?',
           default: this.props.examples
         }
       ])
@@ -101,7 +101,7 @@ class CommerceMcpGenerator extends ActionGenerator {
     }
     const copy = (source, target) => this.fs.copyTpl(this.templatePath(source), target, context)
 
-    for (const file of ['index.js', 'server.js', 'tools.js', ...(context.examples ? ['resources.js', 'prompts.js'] : [])]) {
+    for (const file of ['index.js', 'server.js', 'tools.js']) {
       copy(`actions/mcp-tool/${file}`, path.join(actionRoot, 'mcp-tool', file))
     }
     copy('actions/middleware', path.join(actionRoot, 'middleware'))

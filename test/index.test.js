@@ -63,9 +63,13 @@ describe('Commerce MCP generator', () => {
       web: 'yes',
       annotations: { 'require-adobe-auth': false, 'raw-http': true }
     })
-    for (const file of ['.env.example', '.gitignore', 'README.md', 'LICENSE', 'actions/mcp-tool/resources.js', 'actions/mcp-tool/prompts.js']) {
+    for (const file of ['.env.example', '.gitignore', 'README.md', 'LICENSE']) {
       expect(fs.existsSync(file)).toBe(true)
     }
+    for (const file of ['actions/mcp-tool/resources.js', 'actions/mcp-tool/prompts.js']) {
+      expect(fs.existsSync(file)).toBe(false)
+    }
+    expect(read('actions/mcp-tool/server.js')).not.toMatch(/registerResources|registerPrompts/)
     expect(read('actions/mcp-tool/server.js')).toContain(`name: '${defaultName}'`)
     expect(read('.gitignore')).toContain('!.env.example')
     expect(fs.existsSync('.env')).toBe(false)
@@ -99,8 +103,6 @@ describe('Commerce MCP generator', () => {
     expect(read('.env.example')).toContain('IMS_CLIENT_ALLOWLIST=client-a,client-b')
     expect(read('actions/mcp-tool/index.js')).toContain('imsAuth({ env: \'stage\', allowList: ["client-a","client-b"] })')
     expect(read('actions/mcp-tool/tools.js')).not.toContain('const whoAmI')
-    expect(fs.existsSync('actions/mcp-tool/resources.js')).toBe(false)
-    expect(fs.existsSync('actions/mcp-tool/prompts.js')).toBe(false)
     runGeneratedTests(result.cwd)
   })
 
@@ -110,7 +112,6 @@ describe('Commerce MCP generator', () => {
     })
     expect(read('.env.example')).toContain('IMS_CLIENT_ALLOWLIST=client-c')
     expect(read('actions/mcp-tool/server.js')).toContain("name: 'prompted-tools'")
-    expect(read('actions/mcp-tool/server.js')).not.toContain('registerPrompts')
   })
 
   test('interactive prompts validate the project name and allowlist', async () => {

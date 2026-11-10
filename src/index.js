@@ -24,7 +24,6 @@ class CommerceMcpGenerator extends ActionGenerator {
     })
     this.option('skip-prompt', { type: Boolean, default: false })
     this.option('project-name', { type: String, default: 'commerce-merchandising-mcp' })
-    this.option('ims-env', { type: String, default: 'prod' })
     this.option('allowlist', { type: String, default: '' })
     this.option('examples', { type: Boolean, default: true })
     this.sourceRoot(path.join(__dirname, 'templates'))
@@ -33,7 +32,6 @@ class CommerceMcpGenerator extends ActionGenerator {
   async prompting () {
     this.props = {
       projectName: this.options['project-name'],
-      imsEnv: this.options['ims-env'],
       allowlist: this.options.allowlist,
       examples: this.options.examples
     }
@@ -45,13 +43,6 @@ class CommerceMcpGenerator extends ActionGenerator {
           message: 'MCP project name:',
           default: this.props.projectName,
           validate: value => validProjectName(value) || 'Use 1-64 lowercase letters, digits or hyphens, starting with a letter or digit.'
-        },
-        {
-          type: 'list',
-          name: 'imsEnv',
-          message: 'IMS environment:',
-          choices: ['prod', 'stage'],
-          default: this.props.imsEnv
         },
         {
           type: 'input',
@@ -74,9 +65,6 @@ class CommerceMcpGenerator extends ActionGenerator {
   configuring () {
     if (!validProjectName(this.props.projectName)) {
       throw new Error('Invalid project name: use 1-64 lowercase letters, digits or hyphens, starting with a letter or digit.')
-    }
-    if (!['prod', 'stage'].includes(this.props.imsEnv)) {
-      throw new Error('IMS environment must be "prod" or "stage".')
     }
     if (!validAllowlist(this.props.allowlist)) {
       throw new Error('Invalid IMS allowlist: use comma-separated client IDs containing only letters, digits, underscores and hyphens.')
@@ -135,8 +123,7 @@ class CommerceMcpGenerator extends ActionGenerator {
         runtime: 'nodejs:22',
         inputs: {
           LOG_LEVEL: 'info',
-          IMS_CLIENT_ALLOWLIST: '$IMS_CLIENT_ALLOWLIST',
-          IMS_ENV: '$IMS_ENV'
+          IMS_CLIENT_ALLOWLIST: '$IMS_CLIENT_ALLOWLIST'
         },
         annotations: {
           'require-adobe-auth': false,

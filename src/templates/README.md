@@ -10,7 +10,7 @@ template, with IMS token validation through a middleware chain and per-tool `aut
 
 - Use Node.js 22 or later.
 - Run `npm install`, copy `.env.example` to `.env`, then configure Runtime with `aio app use`.
-- The generated defaults are IMS **<%= imsEnv %>** and client allowlist
+- Tokens are validated against **production** IMS. The generated client allowlist default is
   **<%= allowlist.length ? allowlist.join(', ') : 'empty (any valid IMS token)' %>**.
 
 ## Local Dev
@@ -250,17 +250,15 @@ You can generate this file using the command `aio app use`.
 # Empty retains the allowList default in actions/mcp-tool/index.js.
 # An empty default accepts any valid IMS token.
 IMS_CLIENT_ALLOWLIST=<%= allowlist.join(',') %>
-# IMS environment used to validate tokens: prod or stage
-IMS_ENV=<%= imsEnv %>
 ```
 
-Both variables are wired into the action `inputs` in `app.config.yaml`. If they are absent, the
-action falls back to the defaults above.
+This variable is wired into the action `inputs` in `app.config.yaml`. If it is absent, the
+action falls back to the default above.
 
-`IMS_ENV` **must match the environment that issued the token**. Validating a production token
-against stage IMS makes IMS answer `HTTP 200 {"valid": false, "reason": "bad_signature"}`, which the
-middleware reports as a `401`. The IMS reason is logged at `info` level, so
-`aio rt activation logs <id>` will show the underlying cause.
+Tokens are always validated against **production** IMS. A token issued by stage IMS makes IMS
+answer `HTTP 200 {"valid": false, "reason": "bad_signature"}`, which the middleware reports as a
+`401`. The IMS reason is logged at `info` level, so `aio rt activation logs <id>` will show the
+underlying cause.
 
 ### `app.config.yaml`
 

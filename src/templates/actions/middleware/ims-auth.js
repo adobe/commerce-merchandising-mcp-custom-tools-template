@@ -11,7 +11,7 @@ See the License for the specific language governing permissions and limitations.
  * IMS token validation middleware.
  *
  * Every request must carry an `Authorization: Bearer <IMS token>` header. The token is
- * validated against IMS.
+ * validated against production IMS.
  *
  * Restricting which IMS client may call the action is optional: when `IMS_CLIENT_ALLOWLIST`
  * resolves to an empty list the client id check is disabled and any client presenting a valid
@@ -32,29 +32,28 @@ const { getBearerToken, errorResponse } = require('../utils')
 // Empty = client id check disabled. To restrict, list IMS client ids (the API key IMS puts in the
 // token's `client_id` claim), e.g. ['my-integration-client-id'].
 const DEFAULT_ALLOW_LIST = []
-const DEFAULT_IMS_ENV = 'prod'
+// Storefront MCP calls custom tools with production IMS tokens only.
+const IMS_ENV = 'prod'
 
 const CACHE_MAX_AGE_MS = 5 * 60 * 1000
 const VALID_CACHE_ENTRIES = 10000
 const INVALID_CACHE_ENTRIES = 20000
 
-// IMS clients are cached per container so warm invocations reuse the validation cache.
-const imsClients = new Map()
+// The IMS client is cached per container so warm invocations reuse the validation cache.
+let imsClient
 
 /**
- * Returns a memoized Ims instance (with validation cache) for the given environment.
- *
- * @param {string} env the IMS environment, 'prod' or 'stage'.
+ * Returns the memoized production Ims instance (with validation cache).
  *
  * @returns {object} the Ims instance.
  * @private
  */
-function getIms (env) {
-  if (!imsClients.has(env)) {
+function getIms () {
+  if (!imsClient) {
     const cache = new ValidationCache(CACHE_MAX_AGE_MS, VALID_CACHE_ENTRIES, INVALID_CACHE_ENTRIES)
-    imsClients.set(env, new Ims(env, cache))
+    imsClient = new Ims(IMS_ENV, cache)
   }
-  return imsClients.get(env)
+  return imsClient
 }
 
 /**
@@ -125,13 +124,11 @@ function parseScopes (claims) {
  * @param {object} [options] middleware options.
  * @param {Array<string>} [options.allowList] default allow list, overridden by the
  *        `IMS_CLIENT_ALLOWLIST` action input.
- * @param {string} [options.env] default IMS environment, overridden by the `IMS_ENV` action input.
  *
  * @returns {Function} the middleware function.
  */
 function imsAuth (options = {}) {
   const defaultAllowList = options.allowList || DEFAULT_ALLOW_LIST
-  const defaultEnv = options.env || DEFAULT_IMS_ENV
 
   return async function imsAuthMiddleware (params, ctx) {
     const logger = ctx.logger
@@ -142,14 +139,13 @@ function imsAuth (options = {}) {
     }
 
     const allowList = parseAllowList(params.IMS_CLIENT_ALLOWLIST) || defaultAllowList
-    const env = params.IMS_ENV || defaultEnv
 
     let validation
     try {
       // An undefined allow list makes validateTokenAllowList skip the client id check while still
       // validating the token. We avoid ims.validateToken() because it passes an unbound
       // this._validateToken to the validation cache and throws when a cache is configured.
-      validation = await getIms(env).validateTokenAllowList(token, allowList.length > 0 ? allowList : undefined)
+      validation = await getIms().validateTokenAllowList(token, allowList.length > 0 ? allowList : undefined)
     } catch (e) {
       logger.error(e)
       return errorResponse(503, 'token validation is temporarily unavailable', logger)
@@ -159,9 +155,9 @@ function imsAuth (options = {}) {
       const reason = (validation && validation.reason) || 'token is not valid'
       // aio-lib-ims reports allow list rejections with this reason; everything else is a bad token.
       const notAllowed = reason.includes('IMS client is not authorized to call this endpoint')
-      // logged at info so the IMS reason (e.g. 'bad_signature' when the token was issued by a
-      // different IMS environment) is visible in activation logs.
-      logger.info(`IMS rejected the token (env=${env}): ${reason}`)
+      // logged at info so the IMS reason (e.g. 'bad_signature' for a token issued by stage IMS)
+      // is visible in activation logs.
+      logger.info(`IMS rejected the token: ${reason}`)
       if (notAllowed) {
         return errorResponse(403, 'forbidden: IMS client is not allowed to call this endpoint', logger)
       }
@@ -170,7 +166,7 @@ function imsAuth (options = {}) {
 
     const claims = safeTokenData(token)
     if (isExpired(claims)) {
-      logger.info(`IMS rejected the token (env=${env}): token expired`)
+      logger.info('IMS rejected the token: token expired')
       return errorResponse(401, 'unauthorized: invalid or expired token', logger)
     }
 
@@ -181,5 +177,5 @@ function imsAuth (options = {}) {
 module.exports = {
   imsAuth,
   DEFAULT_ALLOW_LIST,
-  DEFAULT_IMS_ENV
+  IMS_ENV
 }

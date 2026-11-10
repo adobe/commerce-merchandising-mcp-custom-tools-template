@@ -34,21 +34,21 @@ const paramsWithToken = (token = 'fake-token', extra = {}) => ({
   ...extra
 })
 
-let imsAuth, DEFAULT_ALLOW_LIST, DEFAULT_IMS_ENV
+let imsAuth, DEFAULT_ALLOW_LIST, IMS_ENV
 
 beforeEach(() => {
   jest.resetModules()
   jest.clearAllMocks()
   mockGetTokenData.mockReturnValue({ client_id: 'example-client-id' });
-  ({ imsAuth, DEFAULT_ALLOW_LIST, DEFAULT_IMS_ENV } = require('<%= actionsRelPath %>/middleware/ims-auth'))
+  ({ imsAuth, DEFAULT_ALLOW_LIST, IMS_ENV } = require('<%= actionsRelPath %>/middleware/ims-auth'))
 })
 
 describe('imsAuth defaults', () => {
   test('the client id check is disabled by default', () => {
     expect(DEFAULT_ALLOW_LIST).toEqual([])
   })
-  test('default IMS env is prod', () => {
-    expect(DEFAULT_IMS_ENV).toEqual('prod')
+  test('IMS env is prod', () => {
+    expect(IMS_ENV).toEqual('prod')
   })
 })
 
@@ -143,7 +143,7 @@ describe('imsAuth with an allow list', () => {
     expect(context.auth).toEqual({ token: 'good-token', clientId: 'example-client-id', scopes: [] })
   })
 
-  test('uses the prod env by default', async () => {
+  test('validates against prod IMS', async () => {
     await imsAuth({ allowList: ['client-a'] })(paramsWithToken(), ctx())
     expect(mockImsConstructor).toHaveBeenCalledWith('prod', expect.any(Object))
   })
@@ -158,18 +158,18 @@ describe('imsAuth with an allow list', () => {
     expect(mockValidateTokenAllowList).toHaveBeenCalledWith('fake-token', ['client-a', 'client-b'])
   })
 
-  test('options override the built-in defaults', async () => {
-    await imsAuth({ allowList: ['client-c'], env: 'stage' })(paramsWithToken(), ctx())
+  test('the allowList option overrides the built-in default', async () => {
+    await imsAuth({ allowList: ['client-c'] })(paramsWithToken(), ctx())
     expect(mockValidateTokenAllowList).toHaveBeenCalledWith('fake-token', ['client-c'])
-    expect(mockImsConstructor).toHaveBeenCalledWith('stage', expect.any(Object))
   })
 
-  test('IMS_ENV input overrides the env', async () => {
-    await imsAuth()(paramsWithToken('fake-token', { IMS_ENV: 'stage' }), ctx())
-    expect(mockImsConstructor).toHaveBeenCalledWith('stage', expect.any(Object))
+  test('env options and an IMS_ENV input cannot switch away from prod IMS', async () => {
+    await imsAuth({ env: 'stage' })(paramsWithToken('fake-token', { IMS_ENV: 'stage' }), ctx())
+    expect(mockImsConstructor).toHaveBeenCalledWith('prod', expect.any(Object))
+    expect(mockImsConstructor).not.toHaveBeenCalledWith('stage', expect.anything())
   })
 
-  test('creates the Ims instance and validation cache only once per env', async () => {
+  test('creates the Ims instance and validation cache only once', async () => {
     const middleware = imsAuth({ allowList: ['client-a'] })
     await middleware(paramsWithToken(), ctx())
     await middleware(paramsWithToken(), ctx())

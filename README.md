@@ -32,7 +32,7 @@ For standalone generation without `aio app init`, install the package and Yeoman
 ```sh
 npm install -g yo @adobe/generator-app-commerce-merchandising-mcp-custom-tools
 yo @adobe/app-commerce-merchandising-mcp-custom-tools --skip-prompt \
-  --project-name my-commerce-tools --ims-env prod --allowlist client-a,client-b
+  --project-name my-commerce-tools --allowlist client-a,client-b
 ```
 
 Before publication, contributors can use `npm link` from this repository and run that same Yeoman command.
@@ -44,14 +44,14 @@ Interactive prompts use these same defaults. `--skip-prompt` uses supplied CLI o
 | Prompt | CLI option | Default |
 | --- | --- | --- |
 | Project / MCP server name | `--project-name` | `commerce-merchandising-mcp` |
-| IMS environment | `--ims-env` | `prod` (`prod` or `stage`) |
 | Comma-separated IMS client IDs | `--allowlist` | Empty: any valid IMS token |
 | Include the `whoAmI` example tool | `--examples` / `--no-examples` | `true` |
 
 Project names must be 1-64 lowercase letters, digits or hyphens, starting with a letter or digit.
-`currentDate` is always included. The selected IMS environment and allowlist are both written to
-`.env.example` and used as action defaults; action inputs override them. A blank allowlist input
-retains the selected default. Set `allowList: []` in the generated action to remove a nonempty default.
+`currentDate` is always included. Tokens are always validated against production IMS. The selected
+allowlist is written to `.env.example` and used as the action default; the action input overrides it.
+A blank allowlist input retains the selected default. Set `allowList: []` in the generated action to
+remove a nonempty default.
 
 When composed into an existing App Builder project, the generator merges dependencies and adds
 `mcp-tool` to its first runtime package, preserving other actions and configuration. An existing

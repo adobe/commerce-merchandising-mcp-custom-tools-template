@@ -183,5 +183,5 @@ async function handler (params, ctx) {
 exports.main = withMiddleware(handler, [
   cors(),
   publicRoutes(),
-  imsAuth({ env: '<%= imsEnv %>', allowList: <%- JSON.stringify(allowlist) %> })
+  imsAuth({ allowList: <%- JSON.stringify(allowlist) %> })
 ])

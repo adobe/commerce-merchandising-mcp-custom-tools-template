@@ -12,7 +12,6 @@ const { ActionGenerator, utils } = require('@adobe/generator-app-common-lib')
 
 const validProjectName = value => /^[a-z0-9][a-z0-9-]{0,63}$/.test(value)
 const ESLINT_CONFIGS = ['.eslintrc.js', '.eslintrc.cjs', '.eslintrc.yaml', '.eslintrc.yml', '.eslintrc.json', '.eslintrc', 'eslint.config.js', 'eslint.config.mjs', 'eslint.config.cjs']
-const validAllowlist = value => value.split(',').every(entry => /^[a-zA-Z0-9_-]*$/.test(entry.trim()))
 
 class CommerceMcpGenerator extends ActionGenerator {
   constructor (args, opts) {
@@ -24,7 +23,6 @@ class CommerceMcpGenerator extends ActionGenerator {
     })
     this.option('skip-prompt', { type: Boolean, default: false })
     this.option('project-name', { type: String, default: 'commerce-merchandising-mcp' })
-    this.option('allowlist', { type: String, default: '' })
     this.option('examples', { type: Boolean, default: true })
     this.sourceRoot(path.join(__dirname, 'templates'))
   }
@@ -32,7 +30,6 @@ class CommerceMcpGenerator extends ActionGenerator {
   async prompting () {
     this.props = {
       projectName: this.options['project-name'],
-      allowlist: this.options.allowlist,
       examples: this.options.examples
     }
     if (!this.options['skip-prompt']) {
@@ -43,13 +40,6 @@ class CommerceMcpGenerator extends ActionGenerator {
           message: 'MCP project name:',
           default: this.props.projectName,
           validate: value => validProjectName(value) || 'Use 1-64 lowercase letters, digits or hyphens, starting with a letter or digit.'
-        },
-        {
-          type: 'input',
-          name: 'allowlist',
-          message: 'Allowed IMS client IDs (comma separated; empty accepts any valid IMS token):',
-          default: this.props.allowlist,
-          validate: value => validAllowlist(value) || 'Client IDs may contain only letters, digits, underscores and hyphens.'
         },
         {
           type: 'confirm',
@@ -66,10 +56,6 @@ class CommerceMcpGenerator extends ActionGenerator {
     if (!validProjectName(this.props.projectName)) {
       throw new Error('Invalid project name: use 1-64 lowercase letters, digits or hyphens, starting with a letter or digit.')
     }
-    if (!validAllowlist(this.props.allowlist)) {
-      throw new Error('Invalid IMS allowlist: use comma-separated client IDs containing only letters, digits, underscores and hyphens.')
-    }
-    this.props.allowlist = [...new Set(this.props.allowlist.split(',').map(id => id.trim()).filter(Boolean))]
   }
 
   writing () {
@@ -122,8 +108,7 @@ class CommerceMcpGenerator extends ActionGenerator {
       runtimeManifest, runtimePackageName, {
         runtime: 'nodejs:22',
         inputs: {
-          LOG_LEVEL: 'info',
-          IMS_CLIENT_ALLOWLIST: '$IMS_CLIENT_ALLOWLIST'
+          LOG_LEVEL: 'info'
         },
         annotations: {
           'require-adobe-auth': false,

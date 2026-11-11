@@ -12,7 +12,7 @@ See the License for the specific language governing permissions and limitations.
 /**
  *
  * Returns a log ready string of the action input parameters.
- * The `Authorization` header content will be replaced by '<hidden>'.
+ * The `Authorization` and `X-Tool-Authorization` header contents will be replaced by '<hidden>'.
  *
  * @param {object} params action input parameters.
  *
@@ -30,11 +30,13 @@ function stringParameters (params) {
       client_secret: '<hidden>'
     }
   }
-  // hide authorization token without overriding fields in __ow_headers
-  if (params.__ow_headers?.authorization) {
-    paramsShallowCopy.__ow_headers = {
-      ...params.__ow_headers,
-      authorization: '<hidden>'
+  // hide authorization tokens without overriding fields in __ow_headers
+  for (const header of ['authorization', 'x-tool-authorization']) {
+    if (params.__ow_headers?.[header]) {
+      paramsShallowCopy.__ow_headers = {
+        ...paramsShallowCopy.__ow_headers,
+        [header]: '<hidden>'
+      }
     }
   }
   return JSON.stringify(paramsShallowCopy)
@@ -103,16 +105,17 @@ function checkMissingRequestInputs (params, requiredParams = [], requiredHeaders
 
 /**
  *
- * Extracts the bearer token string from the Authorization header in the request parameters.
+ * Extracts the bearer token string from an authorization header in the request parameters.
  * The auth scheme is matched case-insensitively (RFC 7235).
  *
  * @param {object} params action input parameters.
+ * @param {string} [header] the lowercase header name, defaults to `authorization`.
  *
  * @returns {string|undefined} the token string or undefined if not set in request headers.
  *
  */
-function getBearerToken (params) {
-  const authorization = params.__ow_headers?.authorization
+function getBearerToken (params, header = 'authorization') {
+  const authorization = params.__ow_headers?.[header]
   if (typeof authorization !== 'string') {
     return undefined
   }

@@ -32,7 +32,7 @@ For standalone generation without `aio app init`, install the package and Yeoman
 ```sh
 npm install -g yo @adobe/generator-app-commerce-merchandising-mcp-custom-tools
 yo @adobe/app-commerce-merchandising-mcp-custom-tools --skip-prompt \
-  --project-name my-commerce-tools --allowlist client-a,client-b
+  --project-name my-commerce-tools
 ```
 
 Before publication, contributors can use `npm link` from this repository and run that same Yeoman command.
@@ -44,14 +44,10 @@ Interactive prompts use these same defaults. `--skip-prompt` uses supplied CLI o
 | Prompt | CLI option | Default |
 | --- | --- | --- |
 | Project / MCP server name | `--project-name` | `commerce-merchandising-mcp` |
-| Comma-separated IMS client IDs | `--allowlist` | Empty: any valid IMS token |
 | Include the `whoAmI` example tool | `--examples` / `--no-examples` | `true` |
 
 Project names must be 1-64 lowercase letters, digits or hyphens, starting with a letter or digit.
-`currentDate` is always included. Tokens are always validated against production IMS. The selected
-allowlist is written to `.env.example` and used as the action default; the action input overrides it.
-A blank allowlist input retains the selected default. Set `allowList: []` in the generated action to
-remove a nonempty default.
+`currentDate` is always included. Tokens are always validated against production IMS.
 
 When composed into an existing App Builder project, the generator merges dependencies and adds
 `mcp-tool` to its first runtime package, preserving other actions and configuration. An existing
@@ -79,15 +75,16 @@ untracked `.env` / `.aio` configuration.
 
 Every `POST` (including initialization and listing tools) requires `Authorization: Bearer <IMS token>`.
 `GET` health checks and `OPTIONS` preflights are public. Token validation uses `@adobe/aio-lib-ims`;
-the optional allowlist restricts the token's issuing IMS client. The IMS environment must match
-the token issuer. Validation is cached for up to five minutes; expired tokens are always rejected.
-With an empty allowlist **any** valid IMS token (any Adobe account) is accepted, so set the allowlist
-for production. Organization, user and scope checks are left to individual tools (`auth.scopes`
-carries the token's `scope` claim).
+tokens must be issued by production IMS, and any IMS client is accepted. Validation is cached for up
+to five minutes; expired tokens are always rejected. Organization, user and scope checks are left to
+individual tools (`auth.scopes` carries the token's `scope` claim).
 
 Tools declare `authenticated: true | false`, defaulting to `false`. The SDK publishes this as
 **`_meta.authenticated`**, always present in `tools/list`. Only tools with `authenticated: true`
-receive the caller's `{ token, clientId, scopes }` as `auth` in their handler.
+receive `auth` in their handler: `{ token, clientId, scopes, shopperToken }`. `token` is the
+validated IMS token of the caller (Storefront MCP). `shopperToken` is the shopper's bearer token,
+which Storefront MCP forwards in `X-Tool-Authorization` only to authenticated tools. It is passed
+through **unvalidated**; the backend that receives it must verify it.
 `authenticated: false` does **not** make the HTTP endpoint public.
 
 Add tools to the `TOOLS` array in `actions/mcp-tool/tools.js` using `defineTool()` with a Zod

@@ -10,8 +10,7 @@ template, with IMS token validation through a middleware chain and per-tool `aut
 
 - Use Node.js 22 or later.
 - Run `npm install`, copy `.env.example` to `.env`, then configure Runtime with `aio app use`.
-- Tokens are validated against **production** IMS. The generated client allowlist default is
-  **<%= allowlist.length ? allowlist.join(', ') : 'empty (any valid IMS token)' %>**.
+- Tokens are validated against **production** IMS; a valid token from any IMS client is accepted.
 
 ## Local Dev
 
@@ -107,13 +106,7 @@ The `GET` health check and `OPTIONS` preflight are answered before authenticatio
 
 The token is validated against IMS with
 [`@adobe/aio-lib-ims`](https://github.com/adobe/aio-lib-ims) using
-`validateTokenAllowList(token, allowList)`, so the token must also be issued to an IMS client on the
-allow list when one is configured.
-
-Restricting the caller to specific IMS clients is optional. The generator configured the default
-allowlist in `actions/mcp-tool/index.js` as `<%= JSON.stringify(allowlist) %>`. A nonempty
-`IMS_CLIENT_ALLOWLIST` input overrides it with comma-separated IMS **client ids**, not integration
-labels. An empty input retains the generated default; edit `allowList` to `[]` to remove that default.
+production IMS. A valid token from any IMS client is accepted; the issuing client is not restricted.
 
 Validation results are cached in memory (`ValidationCache`, 5 minute TTL) to reduce IMS round-trips,
 so a revoked token may remain accepted until the cache entry expires. Tokens whose `created_at` +
@@ -124,11 +117,11 @@ so a revoked token may remain accepted until the cache entry expires. Tokens who
 | Checked | How |
 | --- | --- |
 | Token is a genuine, unexpired IMS access token for the configured IMS environment | IMS `validate_token` + `created_at`/`expires_in` claims |
-| Token was issued to one of your IMS clients (only when the allowlist is set) | `client_id` claim against `IMS_CLIENT_ALLOWLIST` |
 
 | **Not** checked | Recommendation |
 | --- | --- |
-| Which IMS client issued the token, when the allowlist is empty | **Set `IMS_CLIENT_ALLOWLIST` for production.** With an empty allowlist, a token from *any* IMS client is accepted, i.e. anyone with an Adobe account can call every tool, including `authenticated: false` tools and tools that use the action's own credentials. |
+| Which IMS client issued the token | A token from *any* IMS client is accepted, i.e. anyone with an Adobe account can call every tool, including `authenticated: false` tools and tools that use the action's own credentials. Do not return non-public data without authorizing the caller in the tool. |
+| The shopper token in `X-Tool-Authorization` | Passed to authenticated tools as `auth.shopperToken` without validation; the backend that receives it must verify it. |
 | IMS organization, user or group | Enforce in the tool (e.g. call IMS or your backend with `auth.token`) before returning org data. |
 | OAuth scopes | `auth.scopes` holds the token's `scope` claim; check the scopes a tool needs in its handler. |
 
@@ -140,7 +133,6 @@ Never log or return the token.
 | Status | Meaning |
 | --- | --- |
 | `401` | Missing or malformed `Authorization: Bearer` header, or an invalid/expired token |
-| `403` | Valid token, but the issuing IMS client is not on the allow list (only when `IMS_CLIENT_ALLOWLIST` is set) |
 | `503` | IMS could not be reached to validate the token |
 | `500` | Unexpected server error |
 
@@ -154,7 +146,7 @@ The `mcp-tool` chain is `[cors(), publicRoutes(), imsAuth()]`.
 | --- | --- |
 | `actions/middleware/index.js` | `withMiddleware(handler, middlewares)`: runs middlewares in order, short-circuits on the first returned response, shares a per-request `ctx`, adds `ctx.responseHeaders` to every response, and converts unexpected throws into a `500` |
 | `actions/middleware/cors.js` | `cors(headers)`: answers `OPTIONS` preflight and sets CORS headers |
-| `actions/middleware/ims-auth.js` | `imsAuth(options)`: token extraction, IMS validation, optional allow list enforcement, expired-token rejection, sets `ctx.auth = { token, clientId, scopes }` |
+| `actions/middleware/ims-auth.js` | `imsAuth()`: token extraction, IMS validation, expired-token rejection, sets `ctx.auth = { token, clientId, scopes }` |
 
 To protect another action, wrap its handler the same way:
 
@@ -193,9 +185,13 @@ server with `server.registerTool()`:
 - `_meta.authenticated` is **always** present in `tools/list` (`true` or `false`), so `mcp-registry`
   can persist it during onboarding and the MCP server can forward the auth header only to tools
   that need it.
-- Inside this action, the caller's auth (`{ token, clientId, scopes }`, from the `imsAuth`
-  middleware, passed to the SDK as `authInfo`) is handed to the handler as `auth` **only** for tools
-  with `authenticated: true`.
+- Inside this action, `auth` is handed to the handler **only** for tools with
+  `authenticated: true`:
+
+  | Field | Source |
+  | --- | --- |
+  | `token`, `clientId`, `scopes` | The caller's validated IMS token (from the `imsAuth` middleware). When called through Storefront MCP this is Storefront MCP's own service token, not the shopper's. |
+  | `shopperToken` | The bearer token in the `X-Tool-Authorization` header, which Storefront MCP forwards only to authenticated tools. `undefined` when absent. **Not validated** by this action. |
 
 Example tools (both declare the flag explicitly):
 
@@ -203,7 +199,7 @@ Example tools (both declare the flag explicitly):
 | --- | --- | --- |
 | `currentDate` | `false` | Current date/time, optionally for an IANA timezone |
 <% if (examples) { -%>
-| `whoAmI` | `true` | Returns the caller's IMS client id, user id, token type and expiry (never the token itself) |
+| `whoAmI` | `true` | Returns the caller's IMS client id, user id, token type and expiry, and whether a shopper token was forwarded (never the tokens themselves) |
 <% } -%>
 
 Adding an authenticated tool:
@@ -215,7 +211,8 @@ const myTool = defineTool({
   inputSchema: { sku: z.string().describe('Product SKU') },
   authenticated: true,
   handler: async ({ args, auth }) => {
-    // auth.token is the caller's IMS access token
+    // auth.shopperToken is the shopper's token from X-Tool-Authorization; forward it to your
+    // backend, which must verify it. Never log or return it.
     return { content: [{ type: 'text', text: `ok ${args.sku}` }] }
   }
 })
@@ -244,16 +241,7 @@ You can generate this file using the command `aio app use`.
 ## please provide your Adobe I/O Runtime credentials
 # AIO_RUNTIME_AUTH=
 # AIO_RUNTIME_NAMESPACE=
-
-## IMS token validation (mcp-tool action)
-# Comma separated list of IMS client ids allowed to call the action.
-# Empty retains the allowList default in actions/mcp-tool/index.js.
-# An empty default accepts any valid IMS token.
-IMS_CLIENT_ALLOWLIST=<%= allowlist.join(',') %>
 ```
-
-This variable is wired into the action `inputs` in `app.config.yaml`. If it is absent, the
-action falls back to the default above.
 
 Tokens are always validated against **production** IMS. A token issued by stage IMS makes IMS
 answer `HTTP 200 {"valid": false, "reason": "bad_signature"}`, which the middleware reports as a

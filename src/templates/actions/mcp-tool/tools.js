@@ -22,7 +22,10 @@ See the License for the specific language governing permissions and limitations.
  *     identity/auth context. It is published in `tools/list` as `_meta.authenticated` (the field MCP
  *     reserves for custom data, which SDK clients preserve), so the MCP registry can persist it during
  *     onboarding and the MCP server can forward the auth header only to tools that need it. Only
- *     authenticated tools receive `auth` in their handler.
+ *     authenticated tools receive `auth` in their handler:
+ *     `{ token, clientId, scopes, shopperToken }`. `token` is the validated IMS token of the caller
+ *     (Storefront MCP's service token); `shopperToken` is the bearer token Storefront MCP forwards
+ *     in `X-Tool-Authorization` (the shopper's token, not validated here, undefined when absent).
  *   - `handler` (function, required): `({ args, auth, logger }) => CallToolResult`
  */
 
@@ -97,7 +100,7 @@ const currentDate = defineTool({
 const whoAmI = defineTool({
   name: 'whoAmI',
   title: 'Who am I',
-  description: 'Returns the IMS identity (client id, user id, token type and expiry) of the caller. Requires authentication.',
+  description: 'Returns the IMS identity (client id, user id, token type and expiry) of the caller and whether a shopper token was forwarded. Requires authentication.',
   inputSchema: {},
   annotations: { readOnlyHint: true, openWorldHint: false },
   authenticated: true,
@@ -117,9 +120,10 @@ const whoAmI = defineTool({
       clientId: claims.client_id || auth.clientId,
       userId: claims.user_id,
       tokenType: claims.type,
-      expiresAt: createdAt && expiresIn ? new Date(createdAt + expiresIn).toISOString() : undefined
+      expiresAt: createdAt && expiresIn ? new Date(createdAt + expiresIn).toISOString() : undefined,
+      shopperTokenForwarded: Boolean(auth.shopperToken)
     }
-    // never echo the token itself back to the client
+    // never echo the tokens themselves back to the client
     return textResult(JSON.stringify(identity))
   }
 })
@@ -155,8 +159,14 @@ function registerTools (server, { logger, tools = TOOLS } = {}) {
     }, async (args, extra) => {
       const toolCtx = { args, logger }
       // auth context is only handed to tools that declare `authenticated: true`
-      if (tool.authenticated) {
-        toolCtx.auth = extra && extra.authInfo
+      const authInfo = extra && extra.authInfo
+      if (tool.authenticated && authInfo) {
+        toolCtx.auth = {
+          token: authInfo.token,
+          clientId: authInfo.clientId,
+          scopes: authInfo.scopes,
+          shopperToken: authInfo.extra?.shopperToken
+        }
       }
       return tool.handler(toolCtx)
     })

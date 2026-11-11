@@ -17,17 +17,18 @@ them with a newly generated app (or apply the fix from the release notes) and re
 ## Security model of the generated application
 
 - Every MCP `POST` request requires an IMS bearer token, validated with `@adobe/aio-lib-ims` against the
-  configured IMS environment. `GET` health checks and `OPTIONS` preflights are unauthenticated.
-- `IMS_CLIENT_ALLOWLIST` restricts the IMS client that issued the token. **An empty allowlist accepts a
-  valid token from any IMS client**, so anyone with an Adobe account can call the server; set it for
-  production deployments.
+  production IMS. `GET` health checks and `OPTIONS` preflights are unauthenticated.
+- A valid production IMS token from **any** IMS client is accepted, so anyone with an Adobe account can
+  call the server. Tools that return non-public data must authorize the caller themselves.
 - The middleware does not check IMS organization, user or OAuth scopes. Tools receive the token's
   `scope` claim as `auth.scopes` and must enforce their own scope/organization requirements.
 - Successful validations are cached in the action container for up to five minutes, so a revoked token
   may be accepted until the cache entry expires. Tokens whose claims show they have expired are always
   rejected.
-- Only tools declared with `authenticated: true` receive the caller's token in their handler. Do not log
-  it, return it, or forward it to services that do not need it.
+- Only tools declared with `authenticated: true` receive the caller's token and the shopper token
+  (`X-Tool-Authorization`) in their handler. The shopper token is not validated by the action; the
+  service it is forwarded to must verify it. Do not log or return either token, or forward it to
+  services that do not need it.
 - CORS allows any origin (`*`); browsers still have to present a valid bearer token for `POST` requests.
 - Client-controlled values (JSON-RPC `method`/`id`) are escaped and truncated before logging; malformed
   or non-object request bodies are rejected with JSON-RPC errors.

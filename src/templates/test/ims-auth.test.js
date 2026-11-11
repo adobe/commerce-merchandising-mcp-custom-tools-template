@@ -24,9 +24,6 @@ jest.mock('@adobe/aio-lib-ims', () => ({
   getTokenData: (...args) => mockGetTokenData(...args)
 }))
 
-const NOT_ALLOWED_REASON = 'Token is not valid, reason: IMS client is not authorized to call this endpoint. ' +
-  'Please use a JWT from an IMS client on the allow list.'
-
 const logger = { info: jest.fn(), debug: jest.fn(), error: jest.fn() }
 const ctx = () => ({ logger })
 const paramsWithToken = (token = 'fake-token', extra = {}) => ({
@@ -34,25 +31,22 @@ const paramsWithToken = (token = 'fake-token', extra = {}) => ({
   ...extra
 })
 
-let imsAuth, DEFAULT_ALLOW_LIST, IMS_ENV
+let imsAuth, IMS_ENV
 
 beforeEach(() => {
   jest.resetModules()
   jest.clearAllMocks()
   mockGetTokenData.mockReturnValue({ client_id: 'example-client-id' });
-  ({ imsAuth, DEFAULT_ALLOW_LIST, IMS_ENV } = require('<%= actionsRelPath %>/middleware/ims-auth'))
+  ({ imsAuth, IMS_ENV } = require('<%= actionsRelPath %>/middleware/ims-auth'))
 })
 
 describe('imsAuth defaults', () => {
-  test('the client id check is disabled by default', () => {
-    expect(DEFAULT_ALLOW_LIST).toEqual([])
-  })
   test('IMS env is prod', () => {
     expect(IMS_ENV).toEqual('prod')
   })
 })
 
-describe('imsAuth with the client id check disabled', () => {
+describe('imsAuth token validation', () => {
   test('validates the token with an undefined allow list', async () => {
     mockValidateTokenAllowList.mockResolvedValue({ valid: true })
     const context = ctx()
@@ -76,10 +70,12 @@ describe('imsAuth with the client id check disabled', () => {
     expect(response.error.statusCode).toEqual(401)
   })
 
-  test('an empty IMS_CLIENT_ALLOWLIST input keeps the check disabled', async () => {
+  test('an IMS_CLIENT_ALLOWLIST input is ignored', async () => {
     mockValidateTokenAllowList.mockResolvedValue({ valid: true })
-    await imsAuth()(paramsWithToken('fake-token', { IMS_CLIENT_ALLOWLIST: '  ' }), ctx())
+    const context = ctx()
+    expect(await imsAuth()(paramsWithToken('fake-token', { IMS_CLIENT_ALLOWLIST: 'client-a' }), context)).toBeUndefined()
     expect(mockValidateTokenAllowList).toHaveBeenCalledWith('fake-token', undefined)
+    expect(context.auth.clientId).toEqual('example-client-id')
   })
 })
 
@@ -100,7 +96,7 @@ describe('imsAuth rejections', () => {
 
   test('returns 401 when the token is invalid', async () => {
     mockValidateTokenAllowList.mockResolvedValue({ valid: false, reason: 'Token is expired' })
-    const response = await imsAuth({ allowList: ['client-a'] })(paramsWithToken(), ctx())
+    const response = await imsAuth()(paramsWithToken(), ctx())
     expect(response).toEqual({
       error: { statusCode: 401, body: { error: 'unauthorized: invalid or expired token' } }
     })
@@ -108,22 +104,14 @@ describe('imsAuth rejections', () => {
 
   test('returns 401 when validation returns nothing', async () => {
     mockValidateTokenAllowList.mockResolvedValue(undefined)
-    const response = await imsAuth({ allowList: ['client-a'] })(paramsWithToken(), ctx())
+    const response = await imsAuth()(paramsWithToken(), ctx())
     expect(response.error.statusCode).toEqual(401)
-  })
-
-  test('returns 403 when the IMS client is not on the allow list', async () => {
-    mockValidateTokenAllowList.mockResolvedValue({ valid: false, reason: NOT_ALLOWED_REASON })
-    const response = await imsAuth({ allowList: ['client-a'] })(paramsWithToken(), ctx())
-    expect(response).toEqual({
-      error: { statusCode: 403, body: { error: 'forbidden: IMS client is not allowed to call this endpoint' } }
-    })
   })
 
   test('returns 503 and logs when IMS cannot be reached', async () => {
     const fakeError = new Error('network down')
     mockValidateTokenAllowList.mockRejectedValue(fakeError)
-    const response = await imsAuth({ allowList: ['client-a'] })(paramsWithToken(), ctx())
+    const response = await imsAuth()(paramsWithToken(), ctx())
     expect(response).toEqual({
       error: { statusCode: 503, body: { error: 'token validation is temporarily unavailable' } }
     })
@@ -131,46 +119,31 @@ describe('imsAuth rejections', () => {
   })
 })
 
-describe('imsAuth with an allow list', () => {
+describe('imsAuth with a valid token', () => {
   beforeEach(() => {
     mockValidateTokenAllowList.mockResolvedValue({ valid: true })
   })
 
   test('continues the chain and sets ctx.auth', async () => {
     const context = ctx()
-    const response = await imsAuth({ allowList: ['client-a'] })(paramsWithToken('good-token'), context)
+    const response = await imsAuth()(paramsWithToken('good-token'), context)
     expect(response).toBeUndefined()
     expect(context.auth).toEqual({ token: 'good-token', clientId: 'example-client-id', scopes: [] })
   })
 
   test('validates against prod IMS', async () => {
-    await imsAuth({ allowList: ['client-a'] })(paramsWithToken(), ctx())
+    await imsAuth()(paramsWithToken(), ctx())
     expect(mockImsConstructor).toHaveBeenCalledWith('prod', expect.any(Object))
   })
 
-  test('IMS_CLIENT_ALLOWLIST input enables and sets the allow list', async () => {
-    await imsAuth()(paramsWithToken('fake-token', { IMS_CLIENT_ALLOWLIST: ' client-a , client-b ,, ' }), ctx())
-    expect(mockValidateTokenAllowList).toHaveBeenCalledWith('fake-token', ['client-a', 'client-b'])
-  })
-
-  test('an array IMS_CLIENT_ALLOWLIST input is supported', async () => {
-    await imsAuth()(paramsWithToken('fake-token', { IMS_CLIENT_ALLOWLIST: ['client-a', 'client-b'] }), ctx())
-    expect(mockValidateTokenAllowList).toHaveBeenCalledWith('fake-token', ['client-a', 'client-b'])
-  })
-
-  test('the allowList option overrides the built-in default', async () => {
-    await imsAuth({ allowList: ['client-c'] })(paramsWithToken(), ctx())
-    expect(mockValidateTokenAllowList).toHaveBeenCalledWith('fake-token', ['client-c'])
-  })
-
-  test('env options and an IMS_ENV input cannot switch away from prod IMS', async () => {
-    await imsAuth({ env: 'stage' })(paramsWithToken('fake-token', { IMS_ENV: 'stage' }), ctx())
+  test('an IMS_ENV input cannot switch away from prod IMS', async () => {
+    await imsAuth()(paramsWithToken('fake-token', { IMS_ENV: 'stage' }), ctx())
     expect(mockImsConstructor).toHaveBeenCalledWith('prod', expect.any(Object))
     expect(mockImsConstructor).not.toHaveBeenCalledWith('stage', expect.anything())
   })
 
   test('creates the Ims instance and validation cache only once', async () => {
-    const middleware = imsAuth({ allowList: ['client-a'] })
+    const middleware = imsAuth()
     await middleware(paramsWithToken(), ctx())
     await middleware(paramsWithToken(), ctx())
     expect(mockImsConstructor).toHaveBeenCalledTimes(1)
@@ -181,7 +154,7 @@ describe('imsAuth with an allow list', () => {
   test('does not fail when the client id cannot be decoded', async () => {
     mockGetTokenData.mockImplementation(() => { throw new Error('not a jwt') })
     const context = ctx()
-    const response = await imsAuth({ allowList: ['client-a'] })(paramsWithToken('opaque'), context)
+    const response = await imsAuth()(paramsWithToken('opaque'), context)
     expect(response).toBeUndefined()
     expect(context.auth).toEqual({ token: 'opaque', clientId: undefined, scopes: [] })
   })

@@ -133,7 +133,8 @@ class CommerceMcpGenerator extends ActionGenerator {
       ...defaults,
       name: this.props.projectName,
       ...existing,
-      scripts: { ...defaults.scripts, ...existing.scripts },
+      // test/e2e must match the jest config written above (e.g. aio app init's `--testRegex ./e2e` conflicts with testMatch)
+      scripts: { ...existing.scripts, ...defaults.scripts },
       dependencies: { ...existing.dependencies, ...defaults.dependencies },
       devDependencies: { ...existing.devDependencies, ...defaults.devDependencies }
     })

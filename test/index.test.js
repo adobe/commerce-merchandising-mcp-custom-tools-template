@@ -147,7 +147,7 @@ describe('Commerce MCP generator', () => {
         }))
         fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({
           name: 'existing-app',
-          scripts: { build: 'aio app build' },
+          scripts: { build: 'aio app build', test: 'jest --passWithNoTests ./test', e2e: 'jest --collectCoverage=false --testRegex ./e2e' },
           dependencies: { lodash: '^4.17.21' }
         }))
         fs.writeFileSync(path.join(dir, '.gitignore'), '# existing ignore\n')
@@ -160,6 +160,7 @@ describe('Commerce MCP generator', () => {
     const pkg = JSON.parse(read('package.json'))
     expect(pkg.name).toBe('existing-app')
     expect(pkg.scripts.build).toBe('aio app build')
+    expect(pkg.scripts).toMatchObject({ test: 'jest --runInBand', e2e: expect.stringContaining('--testMatch') })
     expect(pkg.dependencies.lodash).toBe('^4.17.21')
     expect(read('.gitignore')).toBe('# existing ignore\n')
     expect(read('.eslintrc.json')).toBe('{ "root": true }\n')

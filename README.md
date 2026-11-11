@@ -50,7 +50,8 @@ Project names must be 1-64 lowercase letters, digits or hyphens, starting with a
 `currentDate` is always included. Tokens are always validated against production IMS.
 
 When composed into an existing App Builder project, the generator merges dependencies and adds
-`mcp-tool` to its first runtime package, preserving other actions and configuration. An existing
+`mcp-tool` to its first runtime package, preserving other actions and configuration. Its `test` and
+`e2e` scripts replace existing ones, since they depend on the jest configuration it writes. An existing
 `mcp-tool` action is rejected rather than replaced. App Builder's `action-folder`, `config-path`
 and `full-key-to-manifest` options are supported.
 

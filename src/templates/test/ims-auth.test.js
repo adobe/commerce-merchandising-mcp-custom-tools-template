@@ -215,7 +215,9 @@ describe('imsAuth audience binding', () => {
     `https://${NAMESPACE}.adobeioruntime.net/api/v1/web/pkg/mcp-tool`,
     `https://MY-NS.adobeioruntime.net/api/v1/web/pkg/mcp-tool/extra`,
     `https://runtime.adobe.io/api/v1/web/${NAMESPACE}/pkg/mcp-tool`,
-    `https://adobeioruntime.net/api/v1/web/${NAMESPACE}/pkg/mcp-tool`
+    `https://adobeioruntime.net/api/v1/web/${NAMESPACE}/pkg/mcp-tool`,
+    `https://${NAMESPACE}.adobeioruntime.net/api/v1/web/pkg/mcp-tool/`,
+    `https://runtime.adobe.io/api/v1/web/${NAMESPACE}/pkg/mcp-tool/`
   ])('accepts an audience of this runtime: %s', async (aud) => {
     const { response, context } = await accepts(aud)
     expect(response).toBeUndefined()
@@ -233,6 +235,7 @@ describe('imsAuth audience binding', () => {
     ['missing', undefined],
     ['another namespace (host)', 'https://other-ns.adobeioruntime.net/api/v1/web/pkg/mcp-tool'],
     ['another namespace (path)', 'https://runtime.adobe.io/api/v1/web/other-ns/pkg/mcp-tool'],
+    ['another namespace (path, trailing slash)', 'https://runtime.adobe.io/api/v1/web/other-ns/pkg/mcp-tool/'],
     ['a nested subdomain', `https://x.${NAMESPACE}.adobeioruntime.net/api/v1/web/pkg/mcp-tool`],
     ['a path host without the web path', `https://runtime.adobe.io/${NAMESPACE}/pkg/mcp-tool`],
     ['plain http', `http://${NAMESPACE}.adobeioruntime.net/api/v1/web/pkg/mcp-tool`],

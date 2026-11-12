@@ -22,11 +22,13 @@ See the License for the specific language governing permissions and limitations.
  * Tools live in ./tools.js.
  * Tools may set `authenticated: true|false` (default `false`); the flag is published by
  * `tools/list` as `_meta.authenticated` and only authenticated tools receive the caller's auth
- * context. Examples: `currentDate` (unauthenticated) and `whoAmI` (authenticated).
+ * context, including the shopper token Storefront MCP forwards in `X-Tool-Authorization`.
+ * Examples: `currentDate` (unauthenticated) and `whoAmI` (authenticated).
  *
  * Auth: handled by the `imsAuth` middleware (see actions/middleware/ims-auth.js). Every POST must
- * send `Authorization: ****** token>` (and, when `IMS_CLIENT_ALLOWLIST` is set, the issuing
- * IMS client must be on it), otherwise the request is rejected before it reaches the SDK.
+ * send a valid production IMS access token, issued to Storefront MCP and bound to this runtime
+ * (`aud`), as a bearer `Authorization` header, otherwise the request is rejected before it reaches
+ * the SDK.
  */
 
 const { WebStandardStreamableHTTPServerTransport } = require('@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js')
@@ -34,6 +36,7 @@ const { withMiddleware } = require('../middleware')
 const { cors } = require('../middleware/cors')
 const { imsAuth } = require('../middleware/ims-auth')
 const { createMcpServer, SERVER_INFO } = require('./server')
+const { getBearerToken } = require('../utils')
 
 function httpJson (statusCode, obj, headers = {}) {
   return { statusCode, headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(obj) }
@@ -172,7 +175,15 @@ async function handler (params, ctx) {
   })
   try {
     await server.connect(transport)
-    const authInfo = ctx.auth ? { token: ctx.auth.token, clientId: ctx.auth.clientId, scopes: ctx.auth.scopes || [] } : undefined
+    const authInfo = ctx.auth
+      ? {
+          token: ctx.auth.token,
+          clientId: ctx.auth.clientId,
+          scopes: ctx.auth.scopes || [],
+          // the shopper's bearer token, forwarded unvalidated; the tool's backend must verify it
+          extra: { shopperToken: getBearerToken(params, 'x-tool-authorization') }
+        }
+      : undefined
     const response = await transport.handleRequest(toWebRequest(params, body), { parsedBody: body, authInfo })
     return await toRuntimeResponse(response)
   } finally {
@@ -183,5 +194,5 @@ async function handler (params, ctx) {
 exports.main = withMiddleware(handler, [
   cors(),
   publicRoutes(),
-  imsAuth({ allowList: <%- JSON.stringify(allowlist) %> })
+  imsAuth()
 ])

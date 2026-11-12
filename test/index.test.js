@@ -52,7 +52,7 @@ function runGeneratedTests (directory) {
 describe('Commerce MCP generator', () => {
   test('interactive defaults generate a complete app with working tests', async () => {
     const result = await run().withPrompts({
-      projectName: defaultName, allowlist: '', examples: true
+      projectName: defaultName, examples: true
     })
     const app = config()
     const action = app.application.runtimeManifest.packages[defaultName].actions['mcp-tool']
@@ -86,36 +86,34 @@ describe('Commerce MCP generator', () => {
     await run().withOptions({ 'skip-prompt': true })
     expect(config().application.runtimeManifest.packages).toHaveProperty(defaultName)
     expect(config().application.runtimeManifest.packages[defaultName].actions['mcp-tool'].inputs).not.toHaveProperty('IMS_ENV')
-    expect(read('.env.example')).not.toContain('IMS_ENV')
-    expect(read('.env.example')).toContain('IMS_CLIENT_ALLOWLIST=\n')
+    expect(config().application.runtimeManifest.packages[defaultName].actions['mcp-tool'].inputs).not.toHaveProperty('IMS_CLIENT_ALLOWLIST')
+    expect(read('.env.example')).not.toMatch(/IMS_ENV|IMS_CLIENT_ALLOWLIST/)
+    expect(read('actions/mcp-tool/index.js')).toContain('imsAuth()')
   })
 
   test('custom options apply even with prompts skipped and examples disabled', async () => {
     const result = await run().withOptions({
       'skip-prompt': true,
       'project-name': 'my-commerce-tools',
-      allowlist: ' client-a, client-b,client-a,, ',
       examples: false
     })
     expect(config().application.runtimeManifest.packages).toHaveProperty('my-commerce-tools')
     expect(read('actions/mcp-tool/server.js')).toContain("name: 'my-commerce-tools'")
-    expect(read('.env.example')).toContain('IMS_CLIENT_ALLOWLIST=client-a,client-b')
-    expect(read('actions/mcp-tool/index.js')).toContain('imsAuth({ allowList: ["client-a","client-b"] })')
     expect(read('actions/mcp-tool/tools.js')).not.toContain('const whoAmI')
     runGeneratedTests(result.cwd)
   })
 
   test('interactive answers override defaults', async () => {
     await run().withPrompts({
-      projectName: 'prompted-tools', allowlist: 'client-c', examples: false
+      projectName: 'prompted-tools', examples: false
     })
-    expect(read('.env.example')).toContain('IMS_CLIENT_ALLOWLIST=client-c')
+    expect(read('actions/mcp-tool/tools.js')).not.toContain('const whoAmI')
     expect(read('actions/mcp-tool/server.js')).toContain("name: 'prompted-tools'")
   })
 
-  test('interactive prompts validate the project name and allowlist', async () => {
+  test('interactive prompts validate the project name', async () => {
     const validations = {}
-    const answers = { projectName: 'Bad Name', allowlist: 'client a', examples: true }
+    const answers = { projectName: 'Bad Name', examples: true }
     await expect(run().withPrompts(answers, {
       callback (answer) {
         if (this.question.validate) {
@@ -125,8 +123,7 @@ describe('Commerce MCP generator', () => {
       }
     })).rejects.toThrow(/Invalid project name/)
     expect(validations).toEqual({
-      projectName: [expect.stringMatching(/lowercase letters/), true],
-      allowlist: [expect.stringMatching(/letters, digits, underscores and hyphens/), true]
+      projectName: [expect.stringMatching(/lowercase letters/), true]
     })
   })
 
@@ -150,7 +147,7 @@ describe('Commerce MCP generator', () => {
         }))
         fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({
           name: 'existing-app',
-          scripts: { build: 'aio app build' },
+          scripts: { build: 'aio app build', test: 'jest --passWithNoTests ./test', e2e: 'jest --collectCoverage=false --testRegex ./e2e' },
           dependencies: { lodash: '^4.17.21' }
         }))
         fs.writeFileSync(path.join(dir, '.gitignore'), '# existing ignore\n')
@@ -163,6 +160,7 @@ describe('Commerce MCP generator', () => {
     const pkg = JSON.parse(read('package.json'))
     expect(pkg.name).toBe('existing-app')
     expect(pkg.scripts.build).toBe('aio app build')
+    expect(pkg.scripts).toMatchObject({ test: 'jest --runInBand', e2e: expect.stringContaining('--testMatch') })
     expect(pkg.dependencies.lodash).toBe('^4.17.21')
     expect(read('.gitignore')).toBe('# existing ignore\n')
     expect(read('.eslintrc.json')).toBe('{ "root": true }\n')
@@ -236,8 +234,7 @@ describe('Commerce MCP generator', () => {
 
   test.each([
     [{ 'project-name': '../bad' }, /Invalid project name/],
-    [{ 'project-name': 'Bad Name' }, /Invalid project name/],
-    [{ allowlist: 'client-a\nIMS_ENV=stage' }, /Invalid IMS allowlist/]
+    [{ 'project-name': 'Bad Name' }, /Invalid project name/]
   ])('rejects invalid non-interactive options %j', async (options, error) => {
     await expect(run().withOptions({ 'skip-prompt': true, ...options })).rejects.toThrow(error)
   })

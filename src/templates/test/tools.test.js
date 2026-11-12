@@ -50,11 +50,19 @@ describe('registerTools', () => {
     const openHandler = jest.fn(handler)
     const securedHandler = jest.fn(handler)
     registerTools(server, { tools: [defineTool({ name: 'open', handler: openHandler }), defineTool({ name: 'secured', handler: securedHandler, authenticated: true })] })
-    const authInfo = { token: 't', clientId: 'c', scopes: [] }
+    const authInfo = { token: 't', clientId: 'c', scopes: [], extra: { shopperToken: 's' } }
     await server.registerTool.mock.calls[0][2]({ x: 1 }, { authInfo })
     await server.registerTool.mock.calls[1][2]({}, { authInfo })
     expect(openHandler).toHaveBeenCalledWith({ args: { x: 1 }, logger: undefined })
-    expect(securedHandler).toHaveBeenCalledWith({ args: {}, logger: undefined, auth: authInfo })
+    expect(securedHandler).toHaveBeenCalledWith({ args: {}, logger: undefined, auth: { token: 't', clientId: 'c', scopes: [], shopperToken: 's' } })
+  })
+
+  test('authenticated tools get no auth when the request has no authInfo', async () => {
+    const server = { registerTool: jest.fn() }
+    const securedHandler = jest.fn(handler)
+    registerTools(server, { tools: [defineTool({ name: 'secured', handler: securedHandler, authenticated: true })] })
+    await server.registerTool.mock.calls[0][2]({}, {})
+    expect(securedHandler).toHaveBeenCalledWith({ args: {}, logger: undefined })
   })
 })
 

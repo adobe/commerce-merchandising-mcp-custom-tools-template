@@ -10,8 +10,8 @@ template, with IMS token validation through a middleware chain and per-tool `aut
 
 - Use Node.js 22 or later.
 - Run `npm install`, copy `.env.example` to `.env`, then configure Runtime with `aio app use`.
-- Tokens are validated against **production** IMS. The generated client allowlist default is
-  **<%= allowlist.length ? allowlist.join(', ') : 'empty (any valid IMS token)' %>**.
+- Tokens are validated against **production** IMS; only tokens issued to Storefront MCP and bound to
+  this runtime (`aud`) are accepted.
 
 ## Local Dev
 
@@ -28,7 +28,8 @@ For more information on the difference between `aio app run` and `aio app dev`, 
   automatically and written to `coverage/` (text summary and `lcov` report).
 - Run `npm run lint` for lint checks.
 - Set `MCP_ACTION_URL` to the deployed web action URL and run `npm run e2e` for smoke tests
-  (coverage is not collected for e2e runs).
+  (coverage is not collected for e2e runs). They check the public health check and that calls
+  without a Storefront MCP token are rejected.
 
 ## Deploy & Cleanup
 
@@ -56,42 +57,45 @@ transport are created for each request, and responses are always JSON (no SSE st
 
 The action is deployed with `raw-http: true`, so the request body reaches the transport untouched.
 
-### Client configuration
+### Who can call the action
 
-URL: `https://<namespace>.adobeioruntime.net/api/v1/web/<%= runtimePackageName %>/mcp-tool`
+Only **Storefront MCP** (the Adobe Commerce Merchandising MCP server and MCP registry) can call the
+deployed action. Its IMS tokens are issued to the `commerce-catalog-storefront-mcp-service` client
+and bound to the runtime URL you register (see [Runtime-bound tokens](#runtime-bound-tokens-what-you-need-to-do)).
+MCP clients such as Cursor or Claude Desktop cannot connect with your own IMS token: it is rejected
+with `403` (wrong client) or `401` (no matching audience). Use `npm test` and the `GET` health check
+to test the action yourself.
 
-Cursor:
+## Runtime-bound tokens: what you need to do
 
-```json
-{
-  "mcpServers": {
-    "<%= runtimePackageName %>": {
-      "url": "https://<namespace>.adobeioruntime.net/api/v1/web/<%= runtimePackageName %>/mcp-tool",
-      "type": "streamable-http",
-      "headers": { "Authorization": "Bearer <IMS access token>" }
-    }
-  }
-}
-```
+Storefront MCP asks IMS for a token **for your runtime URL** (`resource=<your runtime URL>`), and IMS
+writes that URL into the token's `aud` (audience) claim. The action accepts a token only when one
+`aud` value is an I/O Runtime URL of **its own namespace**. A token that Storefront MCP sent to
+another customer's runtime is therefore rejected by yours, and the reverse.
 
-Claude Desktop (through `mcp-remote`):
+What you need to do:
 
-```json
-{
-  "mcpServers": {
-    "<%= runtimePackageName %>": {
-      "command": "npx",
-      "args": [
-        "mcp-remote",
-        "https://<namespace>.adobeioruntime.net/api/v1/web/<%= runtimePackageName %>/mcp-tool",
-        "--header",
-        "Authorization:${IMS_TOKEN}"
-      ],
-      "env": { "IMS_TOKEN": "Bearer <IMS access token>" }
-    }
-  }
-}
-```
+1. **Nothing to configure.** There is no environment variable or action input to set. The
+   namespace comes from `__OW_NAMESPACE`, which Adobe I/O Runtime sets on every activation, and the
+   allowed IMS client and production IMS are fixed in `actions/middleware/ims-auth.js`. Do not add
+   your own `__OW_NAMESPACE` or client allow list settings; they are ignored.
+2. **Register the Runtime URL of the action**, exactly as `aio app get-url` prints it, when you
+   onboard the custom tools with Storefront MCP:
+   - `https://<namespace>.adobeioruntime.net/api/v1/web/<%= runtimePackageName %>/mcp-tool`, or
+   - `https://runtime.adobe.io/api/v1/web/<namespace>/<%= runtimePackageName %>/mcp-tool`
+
+   `<namespace>` must be the namespace the action is deployed to. Custom domains, CDNs or gateways in
+   front of the action are not supported: Storefront MCP only calls Runtime URLs, and the audience
+   would not match.
+3. **Redeploy after upgrading** (`aio app deploy`) so the deployed action runs the new middleware.
+   If you move the action to another namespace, register the new URL; tokens for the old URL are
+   rejected by the new namespace.
+
+| Symptom (status and `error` in the response) | Cause and fix |
+| --- | --- |
+| `401` `unauthorized: token audience does not match this runtime` | The registered URL is not a Runtime URL of the namespace the action runs in. Register the URL printed by `aio app get-url`. |
+| `403` `forbidden: token was issued to a client that is not allowed` | The caller is not Storefront MCP, e.g. your own IMS token. |
+| `500` `server misconfiguration: runtime namespace is not available` | The action is not running on Adobe I/O Runtime (`__OW_NAMESPACE` is unset). |
 
 ## Authentication
 
@@ -107,13 +111,14 @@ The `GET` health check and `OPTIONS` preflight are answered before authenticatio
 
 The token is validated against IMS with
 [`@adobe/aio-lib-ims`](https://github.com/adobe/aio-lib-ims) using
-`validateTokenAllowList(token, allowList)`, so the token must also be issued to an IMS client on the
-allow list when one is configured.
+production IMS. The token must then:
 
-Restricting the caller to specific IMS clients is optional. The generator configured the default
-allowlist in `actions/mcp-tool/index.js` as `<%= JSON.stringify(allowlist) %>`. A nonempty
-`IMS_CLIENT_ALLOWLIST` input overrides it with comma-separated IMS **client ids**, not integration
-labels. An empty input retains the generated default; edit `allowList` to `[]` to remove that default.
+- be issued to the Storefront MCP IMS client `commerce-catalog-storefront-mcp-service` (`403` otherwise);
+- be bound to this runtime: one `aud` claim value must be an `https` I/O Runtime URL of this action's
+  namespace (`__OW_NAMESPACE`), i.e. `https://<namespace>.adobeioruntime.net/...` or
+  `https://runtime.adobe.io/api/v1/web/<namespace>/...` (`401` otherwise). Storefront MCP requests its
+  token with `resource=<runtime URL>`, which IMS returns as `aud`, so a token sent to another runtime
+  is rejected here.
 
 Validation results are cached in memory (`ValidationCache`, 5 minute TTL) to reduce IMS round-trips,
 so a revoked token may remain accepted until the cache entry expires. Tokens whose `created_at` +
@@ -123,12 +128,13 @@ so a revoked token may remain accepted until the cache entry expires. Tokens who
 
 | Checked | How |
 | --- | --- |
-| Token is a genuine, unexpired IMS access token for the configured IMS environment | IMS `validate_token` + `created_at`/`expires_in` claims |
-| Token was issued to one of your IMS clients (only when the allowlist is set) | `client_id` claim against `IMS_CLIENT_ALLOWLIST` |
+| Token is a genuine, unexpired access token issued by production IMS | IMS `validate_token` + `created_at`/`expires_in` claims |
+| Token was issued to Storefront MCP | `client_id` claim is `commerce-catalog-storefront-mcp-service` |
+| Token is meant for this runtime | an `aud` claim value is an I/O Runtime URL of `__OW_NAMESPACE` |
 
 | **Not** checked | Recommendation |
 | --- | --- |
-| Which IMS client issued the token, when the allowlist is empty | **Set `IMS_CLIENT_ALLOWLIST` for production.** With an empty allowlist, a token from *any* IMS client is accepted, i.e. anyone with an Adobe account can call every tool, including `authenticated: false` tools and tools that use the action's own credentials. |
+| The shopper token in `X-Tool-Authorization` | Passed to authenticated tools as `auth.shopperToken` without validation; the backend that receives it must verify it. |
 | IMS organization, user or group | Enforce in the tool (e.g. call IMS or your backend with `auth.token`) before returning org data. |
 | OAuth scopes | `auth.scopes` holds the token's `scope` claim; check the scopes a tool needs in its handler. |
 
@@ -139,10 +145,10 @@ Never log or return the token.
 
 | Status | Meaning |
 | --- | --- |
-| `401` | Missing or malformed `Authorization: Bearer` header, or an invalid/expired token |
-| `403` | Valid token, but the issuing IMS client is not on the allow list (only when `IMS_CLIENT_ALLOWLIST` is set) |
+| `401` | Missing or malformed `Authorization: Bearer` header, an invalid/expired token, or a token whose audience is not this runtime |
+| `403` | The token was issued to an IMS client other than Storefront MCP |
 | `503` | IMS could not be reached to validate the token |
-| `500` | Unexpected server error |
+| `500` | `__OW_NAMESPACE` is not set (not running on I/O Runtime), or an unexpected server error |
 
 All responses, including errors, carry CORS headers.
 
@@ -154,7 +160,7 @@ The `mcp-tool` chain is `[cors(), publicRoutes(), imsAuth()]`.
 | --- | --- |
 | `actions/middleware/index.js` | `withMiddleware(handler, middlewares)`: runs middlewares in order, short-circuits on the first returned response, shares a per-request `ctx`, adds `ctx.responseHeaders` to every response, and converts unexpected throws into a `500` |
 | `actions/middleware/cors.js` | `cors(headers)`: answers `OPTIONS` preflight and sets CORS headers |
-| `actions/middleware/ims-auth.js` | `imsAuth(options)`: token extraction, IMS validation, optional allow list enforcement, expired-token rejection, sets `ctx.auth = { token, clientId, scopes }` |
+| `actions/middleware/ims-auth.js` | `imsAuth()`: token extraction, IMS validation, expired-token rejection, client and audience checks, sets `ctx.auth = { token, clientId, scopes, audience }` |
 
 To protect another action, wrap its handler the same way:
 
@@ -193,9 +199,13 @@ server with `server.registerTool()`:
 - `_meta.authenticated` is **always** present in `tools/list` (`true` or `false`), so `mcp-registry`
   can persist it during onboarding and the MCP server can forward the auth header only to tools
   that need it.
-- Inside this action, the caller's auth (`{ token, clientId, scopes }`, from the `imsAuth`
-  middleware, passed to the SDK as `authInfo`) is handed to the handler as `auth` **only** for tools
-  with `authenticated: true`.
+- Inside this action, `auth` is handed to the handler **only** for tools with
+  `authenticated: true`:
+
+  | Field | Source |
+  | --- | --- |
+  | `token`, `clientId`, `scopes` | The caller's validated IMS token (from the `imsAuth` middleware). When called through Storefront MCP this is Storefront MCP's own service token, not the shopper's. |
+  | `shopperToken` | The bearer token in the `X-Tool-Authorization` header, which Storefront MCP forwards only to authenticated tools. `undefined` when absent. **Not validated** by this action. |
 
 Example tools (both declare the flag explicitly):
 
@@ -203,7 +213,7 @@ Example tools (both declare the flag explicitly):
 | --- | --- | --- |
 | `currentDate` | `false` | Current date/time, optionally for an IANA timezone |
 <% if (examples) { -%>
-| `whoAmI` | `true` | Returns the caller's IMS client id, user id, token type and expiry (never the token itself) |
+| `whoAmI` | `true` | Returns the caller's IMS client id, user id, token type and expiry, and whether a shopper token was forwarded (never the tokens themselves) |
 <% } -%>
 
 Adding an authenticated tool:
@@ -215,7 +225,8 @@ const myTool = defineTool({
   inputSchema: { sku: z.string().describe('Product SKU') },
   authenticated: true,
   handler: async ({ args, auth }) => {
-    // auth.token is the caller's IMS access token
+    // auth.shopperToken is the shopper's token from X-Tool-Authorization; forward it to your
+    // backend, which must verify it. Never log or return it.
     return { content: [{ type: 'text', text: `ok ${args.sku}` }] }
   }
 })
@@ -244,16 +255,7 @@ You can generate this file using the command `aio app use`.
 ## please provide your Adobe I/O Runtime credentials
 # AIO_RUNTIME_AUTH=
 # AIO_RUNTIME_NAMESPACE=
-
-## IMS token validation (mcp-tool action)
-# Comma separated list of IMS client ids allowed to call the action.
-# Empty retains the allowList default in actions/mcp-tool/index.js.
-# An empty default accepts any valid IMS token.
-IMS_CLIENT_ALLOWLIST=<%= allowlist.join(',') %>
 ```
-
-This variable is wired into the action `inputs` in `app.config.yaml`. If it is absent, the
-action falls back to the default above.
 
 Tokens are always validated against **production** IMS. A token issued by stage IMS makes IMS
 answer `HTTP 200 {"valid": false, "reason": "bad_signature"}`, which the middleware reports as a

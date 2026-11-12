@@ -69,12 +69,6 @@ describe('mcp-tool auth', () => {
     expect(response.error.headers['Access-Control-Allow-Origin']).toEqual('*')
   })
 
-  test('a forbidden client is rejected', async () => {
-    mockAuthMiddleware.mockReturnValue({ error: { statusCode: 403, body: { error: 'forbidden' } } })
-    const response = await action.main(call(1, 'currentDate'))
-    expect(response.error.statusCode).toEqual(403)
-  })
-
   test('notifications are validated too', async () => {
     mockAuthMiddleware.mockReturnValue({ error: { statusCode: 401, body: { error: 'unauthorized' } } })
     const response = await action.main({ __ow_method: 'post', __ow_body: JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' }) })
@@ -289,9 +283,32 @@ describe('mcp-tool authenticated tools', () => {
       clientId: 'my-client',
       userId: 'user@AdobeID',
       tokenType: 'access_token',
-      expiresAt: new Date(1700000000000 + 86400000).toISOString()
+      expiresAt: new Date(1700000000000 + 86400000).toISOString(),
+      shopperTokenForwarded: false
     })
     expect(result.content[0].text).not.toContain(token)
+  })
+
+  test('the X-Tool-Authorization shopper token is passed to authenticated tools only', async () => {
+    const dateSpy = jest.spyOn(tools.findTool('currentDate'), 'handler')
+    const whoSpy = jest.spyOn(tools.findTool('whoAmI'), 'handler')
+    const headers = { __ow_headers: { ...authHeaders, 'x-tool-authorization': 'Bearer shopper-token' } }
+    await action.main(rpc({ jsonrpc: '2.0', id: 15, method: 'tools/call', params: { name: 'currentDate' } }, headers))
+    const { result } = bodyOf(await action.main(rpc({ jsonrpc: '2.0', id: 16, method: 'tools/call', params: { name: 'whoAmI' } }, headers)))
+    expect(dateSpy.mock.calls[0][0]).not.toHaveProperty('auth')
+    expect(whoSpy.mock.calls[0][0].auth.shopperToken).toEqual('shopper-token')
+    expect(result.content[0].text).not.toContain('shopper-token')
+    dateSpy.mockRestore()
+    whoSpy.mockRestore()
+  })
+
+  test('whoAmI reports a forwarded shopper token without returning it', async () => {
+    const token = fakeJwt({ client_id: 'my-client' })
+    mockAuthMiddleware.mockImplementation((params, ctx) => { ctx.auth = { token, clientId: 'my-client' } })
+    const headers = { __ow_headers: { ...authHeaders, 'x-tool-authorization': 'Bearer shopper-token' } }
+    const { result } = bodyOf(await action.main(rpc({ jsonrpc: '2.0', id: 17, method: 'tools/call', params: { name: 'whoAmI' } }, headers)))
+    expect(JSON.parse(result.content[0].text).shopperTokenForwarded).toBe(true)
+    expect(result.content[0].text).not.toContain('shopper-token')
   })
 
   test('whoAmI reports an error when no auth context is available', async () => {

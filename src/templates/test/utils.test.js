@@ -56,6 +56,13 @@ describe('stringParameters', () => {
     expect(utils.stringParameters(params)).toEqual(expect.stringContaining('"authorization":"<hidden>"'))
     expect(utils.stringParameters(params)).not.toEqual(expect.stringContaining('thesecret'))
   })
+  test('with X-Tool-Authorization header', () => {
+    const params = { __ow_headers: { authorization: 'imssecret', 'x-tool-authorization': 'shoppersecret' } }
+    const logged = utils.stringParameters(params)
+    expect(logged).toEqual(expect.stringContaining('"x-tool-authorization":"<hidden>"'))
+    expect(logged).not.toEqual(expect.stringContaining('shoppersecret'))
+    expect(logged).not.toEqual(expect.stringContaining('imssecret'))
+  })
   test('with ims credentials', () => {
     const params = {
       a: 1, b: 2, __ims_oauth_s2s: { client_id: 'fake-client-id', client_secret: 'thesecret', org_id: 'fake@AdobeOrg' }
@@ -137,6 +144,11 @@ describe('getBearerToken', () => {
   })
   test.each(['Bearer ', 'Bearer', 'Basic fake', 'Bearer\nfake'])('rejects %j', (authorization) => {
     expect(utils.getBearerToken({ __ow_headers: { authorization } })).toBeUndefined()
+  })
+  test('reads a custom header', () => {
+    const params = { __ow_headers: { authorization: 'Bearer ims', 'x-tool-authorization': 'Bearer shopper' } }
+    expect(utils.getBearerToken(params, 'x-tool-authorization')).toEqual('shopper')
+    expect(utils.getBearerToken({ __ow_headers: {} }, 'x-tool-authorization')).toBeUndefined()
   })
   test('rejects a non string authorization header', () => {
     expect(utils.getBearerToken({ __ow_headers: { authorization: ['Bearer fake'] } })).toBeUndefined()

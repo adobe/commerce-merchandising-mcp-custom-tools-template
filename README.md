@@ -32,7 +32,7 @@ For standalone generation without `aio app init`, install the package and Yeoman
 ```sh
 npm install -g yo @adobe/generator-app-commerce-merchandising-mcp-custom-tools
 yo @adobe/app-commerce-merchandising-mcp-custom-tools --skip-prompt \
-  --project-name my-commerce-tools --allowlist client-a,client-b
+  --project-name my-commerce-tools
 ```
 
 Before publication, contributors can use `npm link` from this repository and run that same Yeoman command.
@@ -44,17 +44,14 @@ Interactive prompts use these same defaults. `--skip-prompt` uses supplied CLI o
 | Prompt | CLI option | Default |
 | --- | --- | --- |
 | Project / MCP server name | `--project-name` | `commerce-merchandising-mcp` |
-| Comma-separated IMS client IDs | `--allowlist` | Empty: any valid IMS token |
 | Include the `whoAmI` example tool | `--examples` / `--no-examples` | `true` |
 
 Project names must be 1-64 lowercase letters, digits or hyphens, starting with a letter or digit.
-`currentDate` is always included. Tokens are always validated against production IMS. The selected
-allowlist is written to `.env.example` and used as the action default; the action input overrides it.
-A blank allowlist input retains the selected default. Set `allowList: []` in the generated action to
-remove a nonempty default.
+`currentDate` is always included. Tokens are always validated against production IMS.
 
 When composed into an existing App Builder project, the generator merges dependencies and adds
-`mcp-tool` to its first runtime package, preserving other actions and configuration. An existing
+`mcp-tool` to its first runtime package, preserving other actions and configuration. Its `test` and
+`e2e` scripts replace existing ones, since they depend on the jest configuration it writes. An existing
 `mcp-tool` action is rejected rather than replaced. App Builder's `action-folder`, `config-path`
 and `full-key-to-manifest` options are supported.
 
@@ -67,8 +64,8 @@ actions/utils.js       Shared action utilities
 test/                  Action and middleware unit tests
 e2e/                   Deployed-endpoint smoke tests
 app.config.yaml        Runtime web action configuration (nodejs:22, raw-http)
-.env.example           Environment variable names and selected IMS defaults; no credentials
-README.md              Deployment, client configuration and custom-tool guide
+.env.example           Environment variable names; no credentials
+README.md              Deployment, runtime-bound token and custom-tool guide
 ```
 
 Run `npm test` and `npm run lint` inside the generated app. For deployed smoke tests, set
@@ -79,38 +76,43 @@ untracked `.env` / `.aio` configuration.
 
 Every `POST` (including initialization and listing tools) requires `Authorization: Bearer <IMS token>`.
 `GET` health checks and `OPTIONS` preflights are public. Token validation uses `@adobe/aio-lib-ims`;
-the optional allowlist restricts the token's issuing IMS client. The IMS environment must match
-the token issuer. Validation is cached for up to five minutes; expired tokens are always rejected.
-With an empty allowlist **any** valid IMS token (any Adobe account) is accepted, so set the allowlist
-for production. Organization, user and scope checks are left to individual tools (`auth.scopes`
-carries the token's `scope` claim).
+tokens must be issued by production IMS to the Storefront MCP client
+(`commerce-catalog-storefront-mcp-service`; other clients get `403`), and must be bound to the
+action's runtime: one `aud` claim value must be an `https` I/O Runtime URL of the action's namespace
+(`__OW_NAMESPACE`), otherwise `401`. Storefront MCP requests its token with `resource=<runtime URL>`,
+which IMS returns as `aud`, so a token sent to one runtime cannot be replayed against another.
+Validation is cached for up to five minutes; expired tokens are always rejected. Organization, user and scope checks are left to
+individual tools (`auth.scopes` carries the token's `scope` claim).
 
 Tools declare `authenticated: true | false`, defaulting to `false`. The SDK publishes this as
 **`_meta.authenticated`**, always present in `tools/list`. Only tools with `authenticated: true`
-receive the caller's `{ token, clientId, scopes }` as `auth` in their handler.
+receive `auth` in their handler: `{ token, clientId, scopes, shopperToken }`. `token` is the
+validated IMS token of the caller (Storefront MCP). `shopperToken` is the shopper's bearer token,
+which Storefront MCP forwards in `X-Tool-Authorization` only to authenticated tools. It is passed
+through **unvalidated**; the backend that receives it must verify it.
 `authenticated: false` does **not** make the HTTP endpoint public.
 
 Add tools to the `TOOLS` array in `actions/mcp-tool/tools.js` using `defineTool()` with a Zod
 `inputSchema` and a `handler({ args, auth, logger })`. The generated README contains a complete example.
 
-### Client configuration
+### Runtime-bound tokens (customer guide)
 
-For a Streamable HTTP client such as Cursor:
+Only Storefront MCP can call a deployed action; MCP clients such as Cursor or Claude Desktop cannot
+connect with a user's own IMS token. Storefront MCP requests its IMS token with
+`resource=<registered runtime URL>`, IMS returns that URL as the token's `aud`, and the action
+compares the URL's namespace with `__OW_NAMESPACE`.
 
-```json
-{
-  "mcpServers": {
-    "commerce-tools": {
-      "url": "https://<namespace>.adobeioruntime.net/api/v1/web/<runtime-package>/mcp-tool",
-      "type": "streamable-http",
-      "headers": { "Authorization": "Bearer <IMS access token>" }
-    }
-  }
-}
-```
+Customers do not configure anything: `__OW_NAMESPACE` is set by Adobe I/O Runtime and the allowed
+IMS client is fixed in the middleware. They must:
 
-There is no persistent SSE stream or session. The generated README also describes Claude Desktop
-configuration using `mcp-remote`.
+1. Generate (or upgrade to) the app with this generator version and redeploy with `aio app deploy`.
+2. Register the action's Runtime URL exactly as `aio app get-url` prints it,
+   `https://<namespace>.adobeioruntime.net/api/v1/web/<runtime-package>/mcp-tool` or
+   `https://runtime.adobe.io/api/v1/web/<namespace>/<runtime-package>/mcp-tool`, where `<namespace>` is
+   the namespace the action is deployed to. Custom domains or gateways in front of the action are not
+   supported.
+
+The generated README ("Runtime-bound tokens: what you need to do") lists the error responses and fixes.
 
 ## Development
 

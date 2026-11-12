@@ -26,8 +26,9 @@ See the License for the specific language governing permissions and limitations.
  * Examples: `currentDate` (unauthenticated) and `whoAmI` (authenticated).
  *
  * Auth: handled by the `imsAuth` middleware (see actions/middleware/ims-auth.js). Every POST must
- * send a valid production IMS access token as a bearer `Authorization` header, otherwise the
- * request is rejected before it reaches the SDK.
+ * send a valid production IMS access token, issued to Storefront MCP and bound to this runtime
+ * (`aud`), as a bearer `Authorization` header, otherwise the request is rejected before it reaches
+ * the SDK.
  */
 
 const { WebStandardStreamableHTTPServerTransport } = require('@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js')

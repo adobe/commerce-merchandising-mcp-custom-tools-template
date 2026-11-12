@@ -31,18 +31,37 @@ const paramsWithToken = (token = 'fake-token', extra = {}) => ({
   ...extra
 })
 
-let imsAuth, IMS_ENV
+const CLIENT = 'commerce-catalog-storefront-mcp-service'
+const NAMESPACE = 'my-ns'
+const AUD = `https://${NAMESPACE}.adobeioruntime.net/api/v1/web/pkg/mcp-tool`
+const claims = (extra = {}) => ({ client_id: CLIENT, aud: AUD, ...extra })
+const ORIGINAL_NAMESPACE = process.env.__OW_NAMESPACE
+
+let imsAuth, IMS_ENV, ALLOWED_CLIENT_IDS
 
 beforeEach(() => {
   jest.resetModules()
   jest.clearAllMocks()
-  mockGetTokenData.mockReturnValue({ client_id: 'example-client-id' });
-  ({ imsAuth, IMS_ENV } = require('<%= actionsRelPath %>/middleware/ims-auth'))
+  process.env.__OW_NAMESPACE = NAMESPACE
+  mockGetTokenData.mockReturnValue(claims());
+  ({ imsAuth, IMS_ENV, ALLOWED_CLIENT_IDS } = require('<%= actionsRelPath %>/middleware/ims-auth'))
+})
+
+afterAll(() => {
+  if (ORIGINAL_NAMESPACE === undefined) {
+    delete process.env.__OW_NAMESPACE
+  } else {
+    process.env.__OW_NAMESPACE = ORIGINAL_NAMESPACE
+  }
 })
 
 describe('imsAuth defaults', () => {
   test('IMS env is prod', () => {
     expect(IMS_ENV).toEqual('prod')
+  })
+
+  test('only Storefront MCP is an allowed client', () => {
+    expect(ALLOWED_CLIENT_IDS).toEqual([CLIENT])
   })
 })
 
@@ -53,15 +72,18 @@ describe('imsAuth token validation', () => {
     const response = await imsAuth()(paramsWithToken('good-token'), context)
     expect(response).toBeUndefined()
     expect(mockValidateTokenAllowList).toHaveBeenCalledWith('good-token', undefined)
-    expect(context.auth).toEqual({ token: 'good-token', clientId: 'example-client-id', scopes: [] })
+    expect(context.auth).toEqual({ token: 'good-token', clientId: CLIENT, scopes: [], audience: AUD })
   })
 
-  test('accepts a token from any IMS client', async () => {
+  test('rejects a token from another IMS client with 403', async () => {
     mockValidateTokenAllowList.mockResolvedValue({ valid: true })
-    mockGetTokenData.mockReturnValue({ client_id: 'some-other-client' })
+    mockGetTokenData.mockReturnValue(claims({ client_id: 'some-other-client' }))
     const context = ctx()
-    expect(await imsAuth()(paramsWithToken(), context)).toBeUndefined()
-    expect(context.auth.clientId).toEqual('some-other-client')
+    const response = await imsAuth()(paramsWithToken(), context)
+    expect(response).toEqual({
+      error: { statusCode: 403, body: { error: 'forbidden: token was issued to a client that is not allowed' } }
+    })
+    expect(context.auth).toBeUndefined()
   })
 
   test('still rejects an invalid token with 401', async () => {
@@ -70,12 +92,11 @@ describe('imsAuth token validation', () => {
     expect(response.error.statusCode).toEqual(401)
   })
 
-  test('an IMS_CLIENT_ALLOWLIST input is ignored', async () => {
+  test('an IMS_CLIENT_ALLOWLIST input cannot allow another client', async () => {
     mockValidateTokenAllowList.mockResolvedValue({ valid: true })
-    const context = ctx()
-    expect(await imsAuth()(paramsWithToken('fake-token', { IMS_CLIENT_ALLOWLIST: 'client-a' }), context)).toBeUndefined()
-    expect(mockValidateTokenAllowList).toHaveBeenCalledWith('fake-token', undefined)
-    expect(context.auth.clientId).toEqual('example-client-id')
+    mockGetTokenData.mockReturnValue(claims({ client_id: 'client-a' }))
+    const response = await imsAuth()(paramsWithToken('fake-token', { IMS_CLIENT_ALLOWLIST: 'client-a' }), ctx())
+    expect(response.error.statusCode).toEqual(403)
   })
 })
 
@@ -128,7 +149,7 @@ describe('imsAuth with a valid token', () => {
     const context = ctx()
     const response = await imsAuth()(paramsWithToken('good-token'), context)
     expect(response).toBeUndefined()
-    expect(context.auth).toEqual({ token: 'good-token', clientId: 'example-client-id', scopes: [] })
+    expect(context.auth).toEqual({ token: 'good-token', clientId: CLIENT, scopes: [], audience: AUD })
   })
 
   test('validates against prod IMS', async () => {
@@ -151,19 +172,19 @@ describe('imsAuth with a valid token', () => {
     expect(mockValidationCacheConstructor).toHaveBeenCalledWith(5 * 60 * 1000, 10000, 20000)
   })
 
-  test('does not fail when the client id cannot be decoded', async () => {
+  test('rejects with 403 when the client id cannot be decoded', async () => {
     mockGetTokenData.mockImplementation(() => { throw new Error('not a jwt') })
     const context = ctx()
     const response = await imsAuth()(paramsWithToken('opaque'), context)
-    expect(response).toBeUndefined()
-    expect(context.auth).toEqual({ token: 'opaque', clientId: undefined, scopes: [] })
+    expect(response.error.statusCode).toEqual(403)
+    expect(context.auth).toBeUndefined()
   })
 })
 
 describe('imsAuth token claims', () => {
   test('exposes the scope claim as scopes', async () => {
     mockValidateTokenAllowList.mockResolvedValue({ valid: true })
-    mockGetTokenData.mockReturnValue({ client_id: 'example-client-id', scope: 'openid, AdobeID,,read_organizations' })
+    mockGetTokenData.mockReturnValue(claims({ scope: 'openid, AdobeID,,read_organizations' }))
     const context = ctx()
     expect(await imsAuth()(paramsWithToken(), context)).toBeUndefined()
     expect(context.auth.scopes).toEqual(['openid', 'AdobeID', 'read_organizations'])
@@ -171,7 +192,7 @@ describe('imsAuth token claims', () => {
 
   test('rejects a token that expired after it was validated (cached validation)', async () => {
     mockValidateTokenAllowList.mockResolvedValue({ valid: true })
-    mockGetTokenData.mockReturnValue({ client_id: 'example-client-id', created_at: String(Date.now() - 60000), expires_in: '30000' })
+    mockGetTokenData.mockReturnValue(claims({ created_at: String(Date.now() - 60000), expires_in: '30000' }))
     const context = ctx()
     const response = await imsAuth()(paramsWithToken(), context)
     expect(response.error).toEqual({ statusCode: 401, body: { error: 'unauthorized: invalid or expired token' } })
@@ -180,17 +201,76 @@ describe('imsAuth token claims', () => {
 
   test('accepts a token that has not expired yet', async () => {
     mockValidateTokenAllowList.mockResolvedValue({ valid: true })
-    mockGetTokenData.mockReturnValue({ client_id: 'example-client-id', created_at: String(Date.now()), expires_in: '86400000' })
+    mockGetTokenData.mockReturnValue(claims({ created_at: String(Date.now()), expires_in: '86400000' }))
     const context = ctx()
     expect(await imsAuth()(paramsWithToken(), context)).toBeUndefined()
-    expect(context.auth.clientId).toEqual('example-client-id')
+    expect(context.auth.clientId).toEqual(CLIENT)
   })
 
-  test('tolerates a token decoded to null', async () => {
+  test('rejects a token decoded to null with 403', async () => {
     mockValidateTokenAllowList.mockResolvedValue({ valid: true })
     mockGetTokenData.mockReturnValue(null)
+    const response = await imsAuth()(paramsWithToken(), ctx())
+    expect(response.error.statusCode).toEqual(403)
+  })
+})
+
+describe('imsAuth audience binding', () => {
+  beforeEach(() => {
+    mockValidateTokenAllowList.mockResolvedValue({ valid: true })
+  })
+
+  const accepts = async (aud) => {
+    mockGetTokenData.mockReturnValue(claims({ aud }))
     const context = ctx()
-    expect(await imsAuth()(paramsWithToken(), context)).toBeUndefined()
-    expect(context.auth).toEqual({ token: 'fake-token', clientId: undefined, scopes: [] })
+    const response = await imsAuth()(paramsWithToken(), context)
+    return { response, context }
+  }
+
+  test.each([
+    `https://${NAMESPACE}.adobeioruntime.net/api/v1/web/pkg/mcp-tool`,
+    `https://MY-NS.adobeioruntime.net/api/v1/web/pkg/mcp-tool/extra`,
+    `https://runtime.adobe.io/api/v1/web/${NAMESPACE}/pkg/mcp-tool`,
+    `https://adobeioruntime.net/api/v1/web/${NAMESPACE}/pkg/mcp-tool`
+  ])('accepts an audience of this runtime: %s', async (aud) => {
+    const { response, context } = await accepts(aud)
+    expect(response).toBeUndefined()
+    expect(context.auth.audience).toEqual(aud)
+  })
+
+  test('accepts an array aud when one value matches', async () => {
+    const aud = ['https://other.example.com', `https://runtime.adobe.io/api/v1/web/${NAMESPACE}/pkg/mcp-tool`]
+    const { response, context } = await accepts(aud)
+    expect(response).toBeUndefined()
+    expect(context.auth.audience).toEqual(aud[1])
+  })
+
+  test.each([
+    ['missing', undefined],
+    ['another namespace (host)', 'https://other-ns.adobeioruntime.net/api/v1/web/pkg/mcp-tool'],
+    ['another namespace (path)', 'https://runtime.adobe.io/api/v1/web/other-ns/pkg/mcp-tool'],
+    ['a nested subdomain', `https://x.${NAMESPACE}.adobeioruntime.net/api/v1/web/pkg/mcp-tool`],
+    ['a path host without the web path', `https://runtime.adobe.io/${NAMESPACE}/pkg/mcp-tool`],
+    ['plain http', `http://${NAMESPACE}.adobeioruntime.net/api/v1/web/pkg/mcp-tool`],
+    ['userinfo', `https://u:p@${NAMESPACE}.adobeioruntime.net/api/v1/web/pkg/mcp-tool`],
+    ['a non-default port', `https://${NAMESPACE}.adobeioruntime.net:8443/api/v1/web/pkg/mcp-tool`],
+    ['another host', `https://${NAMESPACE}.example.com/api/v1/web/${NAMESPACE}/pkg`],
+    ['the bare namespace', NAMESPACE],
+    ['a non-string', 42],
+    ['an array without a match', ['https://other-ns.adobeioruntime.net/x']]
+  ])('rejects an audience that is %s with 401', async (_, aud) => {
+    const { response, context } = await accepts(aud)
+    expect(response).toEqual({
+      error: { statusCode: 401, body: { error: 'unauthorized: token audience does not match this runtime' } }
+    })
+    expect(context.auth).toBeUndefined()
+  })
+
+  test('returns 500 when __OW_NAMESPACE is not set', async () => {
+    delete process.env.__OW_NAMESPACE
+    const response = await imsAuth()(paramsWithToken(), ctx())
+    expect(response).toEqual({
+      error: { statusCode: 500, body: { error: 'server misconfiguration: runtime namespace is not available' } }
+    })
   })
 })

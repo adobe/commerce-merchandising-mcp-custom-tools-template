@@ -11,15 +11,23 @@ See the License for the specific language governing permissions and limitations.
  * IMS token validation middleware.
  *
  * Every request must carry an `Authorization: Bearer <IMS token>` header. The token is
- * validated against production IMS.
+ * validated against production IMS, and then:
  *
- * Any valid production IMS token is accepted, whichever IMS client issued it.
+ *   - It must be issued by an allowed IMS client (`ALLOWED_CLIENT_IDS`: Storefront MCP).
+ *   - It must be bound to this runtime: one `aud` claim value must be an `https` I/O Runtime URL of
+ *     this action's namespace (`__OW_NAMESPACE`), i.e. `https://<namespace>.adobeioruntime.net/...`
+ *     or `https://runtime.adobe.io/api/v1/web/<namespace>/...` (also `adobeioruntime.net`). Storefront
+ *     MCP requests its token with `resource=<runtime URL>`, which IMS returns as `aud`, so a token
+ *     sent to one runtime cannot be replayed against another. The namespace always comes from the
+ *     runtime environment.
  *
- * On success `ctx.auth = { token, clientId, scopes }` (from the token's claims). Organization,
- * user and scope checks are left to the tools that need them.
+ * On success `ctx.auth = { token, clientId, scopes, audience }` (from the token's claims).
+ * Organization, user and scope checks are left to the tools that need them.
  *
  * Responses on failure:
- *   401 - missing / malformed / invalid or expired token
+ *   401 - missing / malformed / invalid or expired token, or an audience that is not this runtime
+ *   403 - the token was issued by an IMS client that is not allowed
+ *   500 - the runtime namespace (`__OW_NAMESPACE`) is not available
  *   503 - IMS could not be reached
  */
 
@@ -28,6 +36,15 @@ const { getBearerToken, errorResponse } = require('../utils')
 
 // Storefront MCP calls custom tools with production IMS tokens only.
 const IMS_ENV = 'prod'
+
+// IMS clients allowed to call the action: Storefront MCP (MCP server and MCP registry). Any IMS
+// client can request a token with any audience, so this check is what keeps other clients from
+// minting tokens for this runtime.
+const ALLOWED_CLIENT_IDS = Object.freeze(['commerce-catalog-storefront-mcp-service'])
+
+const RUNTIME_HOST_SUFFIX = '.adobeioruntime.net'
+const RUNTIME_PATH_HOSTS = ['runtime.adobe.io', 'adobeioruntime.net']
+const RUNTIME_WEB_PATH = '/api/v1/web/'
 
 const CACHE_MAX_AGE_MS = 5 * 60 * 1000
 const VALID_CACHE_ENTRIES = 10000
@@ -94,6 +111,51 @@ function parseScopes (claims) {
 }
 
 /**
+ * Returns the I/O Runtime namespace an audience URL addresses, or undefined when the value is not
+ * an `https` URL of a Runtime web endpoint (other hosts, userinfo or a non-default port).
+ *
+ * @param {string} audience one `aud` claim value.
+ *
+ * @returns {string|undefined} the lowercased namespace.
+ * @private
+ */
+function audienceNamespace (audience) {
+  let url
+  try {
+    url = new URL(audience)
+  } catch (e) {
+    return undefined
+  }
+  if (url.protocol !== 'https:' || url.username || url.password || url.port) {
+    return undefined
+  }
+  const host = url.hostname
+  let namespace
+  if (RUNTIME_PATH_HOSTS.includes(host)) {
+    namespace = url.pathname.startsWith(RUNTIME_WEB_PATH) ? url.pathname.slice(RUNTIME_WEB_PATH.length).split('/')[0] : ''
+  } else if (host.endsWith(RUNTIME_HOST_SUFFIX)) {
+    namespace = host.slice(0, -RUNTIME_HOST_SUFFIX.length)
+    namespace = namespace.includes('.') ? '' : namespace
+  }
+  return namespace ? namespace.toLowerCase() : undefined
+}
+
+/**
+ * Returns the first `aud` claim value (string or array) that addresses the given runtime namespace.
+ *
+ * @param {object} claims the token claims.
+ * @param {string} namespace the runtime namespace of this action.
+ *
+ * @returns {string|undefined} the matching audience.
+ * @private
+ */
+function matchAudience (claims, namespace) {
+  const audiences = Array.isArray(claims.aud) ? claims.aud : [claims.aud]
+  const expected = namespace.toLowerCase()
+  return audiences.find(aud => typeof aud === 'string' && audienceNamespace(aud) === expected)
+}
+
+/**
  * Creates the IMS auth middleware.
  *
  * @returns {Function} the middleware function.
@@ -109,8 +171,8 @@ function imsAuth () {
 
     let validation
     try {
-      // An undefined allow list makes validateTokenAllowList skip the client id check while still
-      // validating the token. We avoid ims.validateToken() because it passes an unbound
+      // An undefined allow list makes validateTokenAllowList skip its client id check (the client id
+      // is checked below, from the claims, to return 403 rather than 401). We avoid ims.validateToken() because it passes an unbound
       // this._validateToken to the validation cache and throws when a cache is configured.
       validation = await getIms().validateTokenAllowList(token, undefined)
     } catch (e) {
@@ -132,11 +194,28 @@ function imsAuth () {
       return errorResponse(401, 'unauthorized: invalid or expired token', logger)
     }
 
-    ctx.auth = { token, clientId: claims.client_id, scopes: parseScopes(claims) }
+    if (!ALLOWED_CLIENT_IDS.includes(claims.client_id)) {
+      logger.info(`IMS token rejected: client ${claims.client_id} is not allowed`)
+      return errorResponse(403, 'forbidden: token was issued to a client that is not allowed', logger)
+    }
+
+    const namespace = process.env.__OW_NAMESPACE
+    if (!namespace) {
+      logger.error('__OW_NAMESPACE is not set; cannot check the token audience')
+      return errorResponse(500, 'server misconfiguration: runtime namespace is not available', logger)
+    }
+    const audience = matchAudience(claims, namespace)
+    if (!audience) {
+      logger.info(`IMS token rejected: no aud claim addresses runtime namespace ${namespace}`)
+      return errorResponse(401, 'unauthorized: token audience does not match this runtime', logger)
+    }
+
+    ctx.auth = { token, clientId: claims.client_id, scopes: parseScopes(claims), audience }
   }
 }
 
 module.exports = {
   imsAuth,
-  IMS_ENV
+  IMS_ENV,
+  ALLOWED_CLIENT_IDS
 }

@@ -76,11 +76,11 @@ untracked `.env` / `.aio` configuration.
 
 Every `POST` (including initialization and listing tools) requires `Authorization: Bearer <IMS token>`.
 `GET` health checks and `OPTIONS` preflights are public. Token validation uses `@adobe/aio-lib-ims`;
-tokens must be issued by production IMS to the Storefront MCP client
-(`commerce-catalog-storefront-mcp-service`; other clients get `403`), and must be bound to the
+tokens must be issued by production IMS (any IMS client is accepted) and must be bound to the
 action's runtime: one `aud` claim value must be an `https` I/O Runtime URL of the action's namespace
 (`__OW_NAMESPACE`), otherwise `401`. Storefront MCP requests its token with `resource=<runtime URL>`,
-which IMS returns as `aud`, so a token sent to one runtime cannot be replayed against another.
+which IMS returns as `aud`, so a token sent to one runtime cannot be replayed against another
+(other callers must do the same).
 Validation is cached for up to five minutes; expired tokens are always rejected. Organization, user and scope checks are left to
 individual tools (`auth.scopes` carries the token's `scope` claim).
 
@@ -97,13 +97,12 @@ Add tools to the `TOOLS` array in `actions/mcp-tool/tools.js` using `defineTool(
 
 ### Runtime-bound tokens (customer guide)
 
-Only Storefront MCP can call a deployed action; MCP clients such as Cursor or Claude Desktop cannot
-connect with a user's own IMS token. Storefront MCP requests its IMS token with
+Any IMS client can call a deployed action with a token bound to its Runtime URL; a user token from
+`aio login`, Cursor or Claude Desktop has no matching `aud` and is rejected. Storefront MCP requests its IMS token with
 `resource=<registered runtime URL>`, IMS returns that URL as the token's `aud`, and the action
 compares the URL's namespace with `__OW_NAMESPACE`.
 
-Customers do not configure anything: `__OW_NAMESPACE` is set by Adobe I/O Runtime and the allowed
-IMS client is fixed in the middleware. They must:
+Customers do not configure anything: `__OW_NAMESPACE` is set by Adobe I/O Runtime. They must:
 
 1. Generate (or upgrade to) the app with this generator version and redeploy with `aio app deploy`.
 2. Register the action's Runtime URL exactly as `aio app get-url` prints it,

@@ -30,7 +30,7 @@
     "access": "public"
   },
   "dependencies": {
-    "@adobe/generator-app-common-lib": "^3.0.2",
+    "@adobe/generator-app-common-lib": "^4.1.0",
     "yeoman-generator": "^5.10.0"
   },
   "devDependencies": {

@@ -11,7 +11,8 @@ See the License for the specific language governing permissions and limitations.
  * IMS token validation middleware.
  *
  * Every request must carry an `Authorization: Bearer <IMS token>` header. The token is
- * validated against production IMS; any IMS client is accepted. The token must also be bound to
+ * validated against production IMS (always; not configurable) and must be issued to the Storefront
+ * MCP IMS client (`commerce-catalog-storefront-mcp-service`). The token must also be bound to
  * this runtime: one `aud` claim value must be an `https` I/O Runtime URL of this action's namespace
  * (`__OW_NAMESPACE`), i.e. `https://<namespace>.adobeioruntime.net/...` or
  * `https://runtime.adobe.io/api/v1/web/<namespace>/...` (also `adobeioruntime.net`). Callers request
@@ -23,6 +24,7 @@ See the License for the specific language governing permissions and limitations.
  *
  * Responses on failure:
  *   401 - missing / malformed / invalid or expired token, or an audience that is not this runtime
+ *   403 - the token was issued to an IMS client other than Storefront MCP
  *   500 - the runtime namespace (`__OW_NAMESPACE`) is not available
  *   503 - IMS could not be reached
  */
@@ -30,8 +32,9 @@ See the License for the specific language governing permissions and limitations.
 const { Ims, ValidationCache, getTokenData } = require('@adobe/aio-lib-ims')
 const { getBearerToken, errorResponse } = require('../utils')
 
-// Storefront MCP calls custom tools with production IMS tokens only.
-const IMS_ENV = 'prod'
+// The only IMS client allowed to call the action: Storefront MCP (MCP server and MCP registry).
+// Any IMS client can request a token for any audience, so this check keeps other clients out.
+const ALLOWED_CLIENT_ID = 'commerce-catalog-storefront-mcp-service'
 
 const RUNTIME_HOST_SUFFIX = '.adobeioruntime.net'
 const RUNTIME_PATH_HOSTS = ['runtime.adobe.io', 'adobeioruntime.net']
@@ -53,7 +56,8 @@ let imsClient
 function getIms () {
   if (!imsClient) {
     const cache = new ValidationCache(CACHE_MAX_AGE_MS, VALID_CACHE_ENTRIES, INVALID_CACHE_ENTRIES)
-    imsClient = new Ims(IMS_ENV, cache)
+    // Storefront MCP calls custom tools with production IMS tokens only.
+    imsClient = new Ims('prod', cache)
   }
   return imsClient
 }
@@ -162,8 +166,8 @@ function imsAuth () {
 
     let validation
     try {
-      // An undefined allow list makes validateTokenAllowList skip the client id check while still
-      // validating the token. We avoid ims.validateToken() because it passes an unbound
+      // An undefined allow list makes validateTokenAllowList skip its client id check (checked below
+      // from the claims, to return 403 rather than 401). We avoid ims.validateToken() because it passes an unbound
       // this._validateToken to the validation cache and throws when a cache is configured.
       validation = await getIms().validateTokenAllowList(token, undefined)
     } catch (e) {
@@ -185,6 +189,11 @@ function imsAuth () {
       return errorResponse(401, 'unauthorized: invalid or expired token', logger)
     }
 
+    if (claims.client_id !== ALLOWED_CLIENT_ID) {
+      logger.info(`IMS token rejected: client ${claims.client_id} is not allowed`)
+      return errorResponse(403, 'forbidden: token was issued to a client that is not allowed', logger)
+    }
+
     const namespace = process.env.__OW_NAMESPACE
     if (!namespace) {
       logger.error('__OW_NAMESPACE is not set; cannot check the token audience')
@@ -201,6 +210,5 @@ function imsAuth () {
 }
 
 module.exports = {
-  imsAuth,
-  IMS_ENV
+  imsAuth
 }

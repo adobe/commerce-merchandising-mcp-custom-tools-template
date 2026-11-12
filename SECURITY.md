@@ -18,14 +18,13 @@ them with a newly generated app (or apply the fix from the release notes) and re
 
 - Every MCP `POST` request requires an IMS bearer token, validated with `@adobe/aio-lib-ims` against the
   production IMS. `GET` health checks and `OPTIONS` preflights are unauthenticated.
-- A valid production IMS token from **any** IMS client is accepted; the issuing client is not
-  restricted.
+- Only tokens issued to the Storefront MCP IMS client (`commerce-catalog-storefront-mcp-service`) are
+  accepted (`403` otherwise). The allowed client and production IMS are fixed in the middleware, not
+  configurable.
 - The token must be bound to the action's runtime: one `aud` claim value must be an `https` I/O Runtime
   URL of the action's namespace (`__OW_NAMESPACE`), otherwise `401`. Storefront MCP requests its token
   with `resource=<runtime URL>`, which IMS returns as `aud`, so a token received by one runtime cannot
-  be replayed against another customer's runtime. Any IMS client can still request a token for a given
-  Runtime URL, so tools that return non-public data must authorize the caller themselves
-  (`auth.clientId`, organization, scopes).
+  be replayed against another customer's runtime.
 - The middleware does not check IMS organization, user or OAuth scopes. Tools receive the token's
   `scope` claim as `auth.scopes` and must enforce their own scope/organization requirements.
 - Successful validations are cached in the action container for up to five minutes, so a revoked token

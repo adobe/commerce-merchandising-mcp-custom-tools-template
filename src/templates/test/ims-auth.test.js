@@ -37,14 +37,14 @@ const AUD = `https://${NAMESPACE}.adobeioruntime.net/api/v1/web/pkg/mcp-tool`
 const claims = (extra = {}) => ({ client_id: CLIENT, aud: AUD, ...extra })
 const ORIGINAL_NAMESPACE = process.env.__OW_NAMESPACE
 
-let imsAuth, IMS_ENV
+let imsAuth
 
 beforeEach(() => {
   jest.resetModules()
   jest.clearAllMocks()
   process.env.__OW_NAMESPACE = NAMESPACE
   mockGetTokenData.mockReturnValue(claims());
-  ({ imsAuth, IMS_ENV } = require('<%= actionsRelPath %>/middleware/ims-auth'))
+  ({ imsAuth } = require('<%= actionsRelPath %>/middleware/ims-auth'))
 })
 
 afterAll(() => {
@@ -53,12 +53,6 @@ afterAll(() => {
   } else {
     process.env.__OW_NAMESPACE = ORIGINAL_NAMESPACE
   }
-})
-
-describe('imsAuth defaults', () => {
-  test('IMS env is prod', () => {
-    expect(IMS_ENV).toEqual('prod')
-  })
 })
 
 describe('imsAuth token validation', () => {
@@ -71,13 +65,22 @@ describe('imsAuth token validation', () => {
     expect(context.auth).toEqual({ token: 'good-token', clientId: CLIENT, scopes: [], audience: AUD })
   })
 
-  test('accepts a token from any IMS client bound to this runtime', async () => {
+  test('rejects a token from another IMS client with 403, even when bound to this runtime', async () => {
     mockValidateTokenAllowList.mockResolvedValue({ valid: true })
     mockGetTokenData.mockReturnValue(claims({ client_id: 'some-other-client' }))
     const context = ctx()
     const response = await imsAuth()(paramsWithToken(), context)
-    expect(response).toBeUndefined()
-    expect(context.auth.clientId).toEqual('some-other-client')
+    expect(response).toEqual({
+      error: { statusCode: 403, body: { error: 'forbidden: token was issued to a client that is not allowed' } }
+    })
+    expect(context.auth).toBeUndefined()
+  })
+
+  test('an IMS_CLIENT_ALLOWLIST input cannot allow another client', async () => {
+    mockValidateTokenAllowList.mockResolvedValue({ valid: true })
+    mockGetTokenData.mockReturnValue(claims({ client_id: 'client-a' }))
+    const response = await imsAuth()(paramsWithToken('fake-token', { IMS_CLIENT_ALLOWLIST: 'client-a' }), ctx())
+    expect(response.error.statusCode).toEqual(403)
   })
 
   test('still rejects an invalid token with 401', async () => {
@@ -144,12 +147,6 @@ describe('imsAuth with a valid token', () => {
     expect(mockImsConstructor).toHaveBeenCalledWith('prod', expect.any(Object))
   })
 
-  test('an IMS_ENV input cannot switch away from prod IMS', async () => {
-    await imsAuth()(paramsWithToken('fake-token', { IMS_ENV: 'stage' }), ctx())
-    expect(mockImsConstructor).toHaveBeenCalledWith('prod', expect.any(Object))
-    expect(mockImsConstructor).not.toHaveBeenCalledWith('stage', expect.anything())
-  })
-
   test('creates the Ims instance and validation cache only once', async () => {
     const middleware = imsAuth()
     await middleware(paramsWithToken(), ctx())
@@ -159,11 +156,11 @@ describe('imsAuth with a valid token', () => {
     expect(mockValidationCacheConstructor).toHaveBeenCalledWith(5 * 60 * 1000, 10000, 20000)
   })
 
-  test('rejects with 401 when the claims cannot be decoded', async () => {
+  test('rejects with 403 when the client id cannot be decoded', async () => {
     mockGetTokenData.mockImplementation(() => { throw new Error('not a jwt') })
     const context = ctx()
     const response = await imsAuth()(paramsWithToken('opaque'), context)
-    expect(response.error.statusCode).toEqual(401)
+    expect(response.error.statusCode).toEqual(403)
     expect(context.auth).toBeUndefined()
   })
 })
@@ -194,11 +191,11 @@ describe('imsAuth token claims', () => {
     expect(context.auth.clientId).toEqual(CLIENT)
   })
 
-  test('rejects a token decoded to null with 401', async () => {
+  test('rejects a token decoded to null with 403', async () => {
     mockValidateTokenAllowList.mockResolvedValue({ valid: true })
     mockGetTokenData.mockReturnValue(null)
     const response = await imsAuth()(paramsWithToken(), ctx())
-    expect(response.error.statusCode).toEqual(401)
+    expect(response.error.statusCode).toEqual(403)
   })
 })
 
